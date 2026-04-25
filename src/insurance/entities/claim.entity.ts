@@ -17,6 +17,22 @@ export class Claim {
   @Column()
   policyId: string;
 
+<<<<<<< HEAD
+  @Column('decimal')
+  claimAmount: number;
+
+  @Column({ nullable: true })
+  description?: string;
+
+  @Column({
+    type: 'enum',
+    enum: ClaimStatus,
+    default: ClaimStatus.PENDING
+  })
+  status: ClaimStatus;
+
+  @Column({ nullable: true })
+=======
   @ManyToOne(() => InsurancePolicy, (policy) => policy.claims, {
     onDelete: 'CASCADE',
   })
@@ -30,8 +46,15 @@ export class Claim {
   status: ClaimStatus;
 
   @Column('decimal', { nullable: true })
+>>>>>>> f521d5bf94f52c42a24af763b17bbea68299cfb8
   payoutAmount?: number;
 
   @CreateDateColumn()
   createdAt: Date;
+<<<<<<< HEAD
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+=======
+>>>>>>> f521d5bf94f52c42a24af763b17bbea68299cfb8
 }

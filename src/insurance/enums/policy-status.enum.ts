@@ -1,0 +1,7 @@
+export enum PolicyStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  EXPIRED = 'EXPIRED',
+  CANCELLED = 'CANCELLED',
+  PENDING = 'PENDING'
+}
