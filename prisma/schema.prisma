@@ -10,18 +10,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id              String   @id @default(cuid())
-  walletAddress   String   @unique @map("wallet_address")
-  profileData     Json?    @map("profile_data")
-  reputationScore Int      @default(0) @map("reputation_score")
-  trustScore      Int      @default(500) @map("trust_score")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+// Insurance is the primary product domain for this service.
+// Legacy project/contribution models remain because the indexer,
+// reputation, and notification workflows still depend on them.
 
-  // Notification fields
-  email            String? @unique
-  pushSubscription Json?   @map("push_subscription")
+model User {
+  id              String    @id @default(cuid())
+  walletAddress   String    @unique @map("wallet_address") // Public blockchain identifier
+  profileData     Json?     @map("profile_data")
+  reputationScore Int       @default(0) @map("reputation_score")
+  trustScore      Int       @default(500) @map("trust_score")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  // Notification fields (encrypted at rest)
+  email            String? @unique // Encrypted at rest - PII
+  pushSubscription Json?   @map("push_subscription") // Encrypted at rest
 
   // Relations
   createdProjects      Project[]            @relation("ProjectCreator")
@@ -29,46 +34,11 @@ model User {
   reputationHistory    ReputationHistory[]
   notificationSettings NotificationSetting?
   notifications        Notification[]
-  proposals            Proposal[]           @relation("ProposalCreator")
-  votes                Vote[]               @relation("UserVotes")
-  refreshTokens        RefreshToken[]
-  tokenAuditLogs       TokenAuditLog[]
+  insurancePolicies    InsurancePolicy[]
+  auditLogs            AuditLog[]
 
+  @@index([deletedAt])
   @@map("users")
-}
-
-model RefreshToken {
-  id         String   @id @default(cuid())
-  tokenHash  String   @unique @map("token_hash")
-  userId     String   @map("user_id")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  family     String // token family for rotation chain detection
-  isRevoked  Boolean  @default(false) @map("is_revoked")
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  replacedBy String?  @map("replaced_by") // tokenHash of the next token in chain
-  ipAddress  String?  @map("ip_address")
-  userAgent  String?  @map("user_agent")
-
-  @@index([userId])
-  @@index([family])
-  @@map("refresh_tokens")
-}
-
-model TokenAuditLog {
-  id          String   @id @default(cuid())
-  userId      String   @map("user_id")
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action      String // ISSUED, ROTATED, REVOKED, LOGOUT, REUSE_DETECTED
-  tokenFamily String?  @map("token_family")
-  ipAddress   String?  @map("ip_address")
-  userAgent   String?  @map("user_agent")
-  metadata    Json?
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  @@index([userId])
-  @@index([createdAt])
-  @@map("token_audit_logs")
 }
 
 model Project {
@@ -82,30 +52,39 @@ model Project {
   goal         BigInt
   currentFunds BigInt        @default(0) @map("current_funds")
   deadline     DateTime
-  ipfsHash     String?       @map("ipfs_hash")
   status       ProjectStatus @default(ACTIVE)
+  ipfsHash     String?       @map("ipfs_hash")
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
+  deletedAt    DateTime?     @map("deleted_at")
 
   // Relations
   contributions Contribution[]
   milestones    Milestone[]
 
+  @@index([creatorId])
+  @@index([status, deadline])
+  @@index([deletedAt])
   @@map("projects")
 }
 
 model Contribution {
-  id              String   @id @default(cuid())
-  transactionHash String   @unique @map("transaction_hash")
-  investorId      String   @map("investor_id")
-  investor        User     @relation(fields: [investorId], references: [id])
-  projectId       String   @map("project_id")
-  project         Project  @relation(fields: [projectId], references: [id])
+  id              String    @id @default(cuid())
+  transactionHash String    @unique @map("transaction_hash")
+  investorId      String    @map("investor_id")
+  investor        User      @relation(fields: [investorId], references: [id])
+  projectId       String    @map("project_id")
+  project         Project   @relation(fields: [projectId], references: [id])
   amount          BigInt
-  timestamp       DateTime @default(now())
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  timestamp       DateTime  @default(now())
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
 
+  @@index([investorId])
+  @@index([projectId])
+  @@index([projectId, investorId])
+  @@index([deletedAt])
   @@map("contributions")
 }
 
@@ -120,31 +99,161 @@ model Milestone {
   completionDate DateTime?       @map("completion_date")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
+  deletedAt      DateTime?       @map("deleted_at")
 
+  @@index([projectId])
+  @@index([status])
+  @@index([deletedAt])
   @@map("milestones")
 }
 
 model ReputationHistory {
-  id          String   @id @default(cuid())
-  userId      String   @map("user_id")
-  user        User     @relation(fields: [userId], references: [id])
-  scoreChange Int      @map("score_change")
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id])
+  scoreChange Int       @map("score_change")
   reason      String
-  timestamp   DateTime @default(now())
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  timestamp   DateTime  @default(now())
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
 
+  @@index([userId])
+  @@index([timestamp])
+  @@index([deletedAt])
   @@map("reputation_history")
 }
 
 model Category {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String    @id @default(cuid())
+  name        String    @unique
   description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
 
+  @@index([deletedAt])
   @@map("categories")
+}
+
+model InsurancePool {
+  id            String                @id @default(uuid())
+  name          String
+  capital       Decimal               @db.Decimal(18, 2)
+  lockedCapital Decimal               @default(0) @map("locked_capital") @db.Decimal(18, 2)
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  deletedAt     DateTime?             @map("deleted_at")
+  policies      InsurancePolicy[]
+  contracts     ReinsuranceContract[]
+
+  @@index([deletedAt])
+  @@map("insurance_pools")
+}
+
+model ReinsuranceContract {
+  id            String            @id @default(uuid())
+  poolId        String            @map("pool_id")
+  pool          InsurancePool     @relation(fields: [poolId], references: [id])
+  coverageLimit Decimal           @map("coverage_limit") @db.Decimal(18, 2)
+  premiumRate   Decimal           @map("premium_rate") @db.Decimal(10, 4)
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  deletedAt     DateTime?         @map("deleted_at")
+  policies      InsurancePolicy[]
+
+  @@index([poolId])
+  @@index([deletedAt])
+  @@map("reinsurance_contracts")
+}
+
+model InsurancePolicy {
+  id             String               @id @default(uuid())
+  userId         String               @map("user_id")
+  user           User                 @relation(fields: [userId], references: [id])
+  poolId         String               @map("pool_id")
+  pool           InsurancePool        @relation(fields: [poolId], references: [id])
+  contractId     String?              @map("contract_id")
+  contract       ReinsuranceContract? @relation(fields: [contractId], references: [id])
+  riskType       RiskType
+  premium        Decimal              @db.Decimal(18, 2)
+  coverageAmount Decimal              @map("coverage_amount") @db.Decimal(18, 2)
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  deletedAt      DateTime?            @map("deleted_at")
+  claims         Claim[]
+
+  @@index([userId])
+  @@index([poolId])
+  @@index([contractId])
+  @@index([riskType])
+  @@index([deletedAt])
+  @@map("insurance_policies")
+}
+
+model Claim {
+  id           String          @id @default(uuid())
+  policyId     String          @map("policy_id")
+  policy       InsurancePolicy @relation(fields: [policyId], references: [id])
+  claimAmount  Decimal         @map("claim_amount") @db.Decimal(18, 2)
+  status       ClaimStatus     @default(PENDING)
+  payoutAmount Decimal?        @map("payout_amount") @db.Decimal(18, 2)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  deletedAt    DateTime?       @map("deleted_at")
+
+  @@index([policyId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("claims")
+}
+
+model AuditLog {
+  id              String      @id @default(uuid())
+  userId          String?     @map("user_id")
+  user            User?       @relation(fields: [userId], references: [id])
+  action          AuditAction
+  entityType      String      @map("entity_type")
+  entityId        String      @map("entity_id")
+  beforeState     Json?       @map("before_state")
+  afterState      Json?       @map("after_state")
+  ipAddress       String?     @map("ip_address")
+  userAgent       String?     @map("user_agent")
+  transactionHash String?     @map("transaction_hash")
+  reason          String?
+  timestamp       DateTime    @default(now())
+  createdAt       DateTime    @default(now()) @map("created_at")
+  deletedAt       DateTime?   @map("deleted_at")
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([timestamp])
+  @@index([deletedAt])
+  @@map("audit_logs")
+}
+
+enum RiskType {
+  PROJECT_FAILURE
+  SMART_CONTRACT_EXPLOIT
+  MARKET_VOLATILITY
+}
+
+enum ClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+  PAYOUT
+  PURCHASE
+  ADD_CAPITAL
 }
 
 enum ProjectStatus {
@@ -163,56 +272,64 @@ enum MilestoneStatus {
 }
 
 model LedgerCursor {
-  id             String   @id @default(cuid())
-  network        String   @unique
-  lastLedgerSeq  Int      @map("last_ledger_seq")
-  lastLedgerHash String?  @map("last_ledger_hash")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id             String    @id @default(cuid())
+  network        String    @unique
+  lastLedgerSeq  Int       @map("last_ledger_seq")
+  lastLedgerHash String?   @map("last_ledger_hash")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
 
+  @@index([deletedAt])
   @@map("ledger_cursors")
 }
 
 model ProcessedEvent {
-  id              String   @id @default(cuid())
-  eventId         String   @unique @map("event_id")
+  id              String    @id @default(cuid())
+  eventId         String    @unique @map("event_id")
   network         String
-  ledgerSeq       Int      @map("ledger_seq")
-  contractId      String   @map("contract_id")
-  eventType       String   @map("event_type")
-  transactionHash String   @map("transaction_hash")
-  processedAt     DateTime @default(now()) @map("processed_at")
+  ledgerSeq       Int       @map("ledger_seq")
+  contractId      String    @map("contract_id")
+  eventType       String    @map("event_type")
+  transactionHash String    @map("transaction_hash")
+  processedAt     DateTime  @default(now()) @map("processed_at")
+  deletedAt       DateTime? @map("deleted_at")
 
   @@index([network, ledgerSeq])
   @@index([contractId, eventType])
+  @@index([deletedAt])
   @@map("processed_events")
 }
 
 model IndexerLog {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   level     String
   message   String
   metadata  Json?
-  timestamp DateTime @default(now())
-  createdAt DateTime @default(now()) @map("created_at")
+  timestamp DateTime  @default(now())
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
 
   @@index([timestamp])
   @@index([level])
+  @@index([deletedAt])
   @@map("indexer_logs")
 }
 
 model NotificationSetting {
-  id                  String   @id @default(cuid())
-  userId              String   @unique @map("user_id")
-  user                User     @relation(fields: [userId], references: [id])
-  emailEnabled        Boolean  @default(true) @map("email_enabled")
-  pushEnabled         Boolean  @default(false) @map("push_enabled")
-  notifyContributions Boolean  @default(true) @map("notify_contributions")
-  notifyMilestones    Boolean  @default(true) @map("notify_milestones")
-  notifyDeadlines     Boolean  @default(true) @map("notify_deadlines")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id                  String    @id @default(cuid())
+  userId              String    @unique @map("user_id")
+  user                User      @relation(fields: [userId], references: [id])
+  emailEnabled        Boolean   @default(true) @map("email_enabled")
+  pushEnabled         Boolean   @default(false) @map("push_enabled")
+  notifyContributions Boolean   @default(true) @map("notify_contributions")
+  notifyMilestones    Boolean   @default(true) @map("notify_milestones")
+  notifyDeadlines     Boolean   @default(true) @map("notify_deadlines")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
 
+  @@index([deletedAt])
   @@map("notification_settings")
 }
 
@@ -226,8 +343,11 @@ model Notification {
   read      Boolean          @default(false)
   data      Json? // Optional metadata (e.g., projectId)
   createdAt DateTime         @default(now()) @map("created_at")
+  deletedAt DateTime?        @map("deleted_at")
 
   @@index([userId])
+  @@index([userId, read, createdAt])
+  @@index([deletedAt])
   @@map("notifications")
 }
 
@@ -241,9 +361,30 @@ model EmailOutbox {
   lastError String?     @map("last_error")
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
+  deletedAt DateTime?   @map("deleted_at")
 
   @@index([status])
+  @@index([status, createdAt])
+  @@index([deletedAt])
   @@map("email_outbox")
+}
+
+model IdempotencyKey {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  method      String
+  endpoint    String
+  requestBody Json
+  response    Json?
+  status      String    @default("PENDING")
+  expiresAt   DateTime  @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@index([expiresAt])
+  @@index([method, endpoint])
+  @@index([deletedAt])
+  @@map("idempotency_keys")
 }
 
 enum NotificationType {
@@ -257,55 +398,4 @@ enum EmailStatus {
   PENDING
   SENT
   FAILED
-}
-
-model Proposal {
-  id          String         @id @default(cuid())
-  title       String
-  description String
-  creatorId   String         @map("creator_id")
-  creator     User           @relation("ProposalCreator", fields: [creatorId], references: [id])
-  status      ProposalStatus @default(PENDING)
-  votes       Vote[]
-  expiresAt   DateTime       @map("expires_at")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
-
-  @@map("proposals")
-}
-
-model Vote {
-  id         String   @id @default(cuid())
-  proposalId String   @map("proposal_id")
-  proposal   Proposal @relation(fields: [proposalId], references: [id])
-  voterId    String   @map("voter_id")
-  voter      User     @relation("UserVotes", fields: [voterId], references: [id])
-  support    Boolean
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  @@unique([proposalId, voterId])
-  @@map("votes")
-}
-
-enum ProposalStatus {
-  PENDING
-  ACTIVE
-  SUCCEEDED
-  DEFEATED
-  EXECUTED
-  CANCELLED
-}
-
-model AuditLog {
-  id        String   @id @default(cuid())
-  action    String   @map("action")
-  actorId   String?  @map("actor_id")
-  ip        String?  @map("ip")
-  metadata  Json?    @map("metadata")
-  timestamp DateTime @default(now()) @map("timestamp")
-
-  @@index([action])
-  @@index([actorId])
-  @@index([timestamp])
-  @@map("audit_logs")
 }

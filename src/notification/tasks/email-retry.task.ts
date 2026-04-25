@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma.service';
 import * as sgMail from '@sendgrid/mail';
@@ -9,10 +8,7 @@ export class EmailRetryTask {
     private readonly logger = new Logger(EmailRetryTask.name);
     private readonly MAX_ATTEMPTS = 3;
 
-    constructor(
-        private readonly prisma: PrismaService,
-        private readonly configService: ConfigService,
-    ) { }
+    constructor(private readonly prisma: PrismaService) { }
 
     // Run every 5 minutes
     @Cron(CronExpression.EVERY_5_MINUTES)
@@ -31,8 +27,7 @@ export class EmailRetryTask {
 
         for (const email of failedEmails) {
             try {
-                const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
-                if (!apiKey) {
+                if (!process.env.SENDGRID_API_KEY) {
                     this.logger.warn('SENDGRID_API_KEY not set during retry. Skipping.');
                     return;
                 }
@@ -40,7 +35,7 @@ export class EmailRetryTask {
 
                 const msg = {
                     to: email.to,
-                    from: this.configService.get<string>('SENDGRID_FROM_EMAIL'),
+                    from: process.env.SENDGRID_FROM_EMAIL || 'noreply@novafund.xyz',
                     subject: email.subject,
                     html: email.html,
                 };

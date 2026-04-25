@@ -1,8 +1,77 @@
+/**
+ * Handler for MILESTONE_REJECTED events
+ */
+class MilestoneRejectedHandler implements IEventHandler {
+  readonly eventType = ContractEventType.MILESTONE_REJECTED;
+  private readonly logger = new Logger(MilestoneRejectedHandler.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+    private readonly reputationService: ReputationService,
+  ) {}
+
+  validate(event: ParsedContractEvent): boolean {
+    const data = event.data as any;
+    return !!(data.projectId !== undefined && data.milestoneId !== undefined);
+  }
+
+  async handle(event: ParsedContractEvent): Promise<void> {
+    const data = event.data as any;
+
+    this.logger.log(
+      `Processing MILESTONE_REJECTED: Milestone ${data.milestoneId} for project ${data.projectId}`,
+    );
+
+    const project = await this.prisma.project.findUnique({
+      where: { contractId: data.projectId.toString() },
+    });
+
+    if (!project) {
+      this.logger.warn(`Project ${data.projectId} not found for milestone rejection`);
+      return;
+    }
+
+    // Update milestone status
+    await this.prisma.milestone.updateMany({
+      where: {
+        projectId: project.id,
+      },
+      data: {
+        status: 'REJECTED',
+      },
+    });
+
+    // Notify all contributors of this project
+    const contributors = await this.prisma.contribution.findMany({
+      where: { projectId: project.id },
+      select: { investorId: true },
+      distinct: ['investorId'],
+    });
+
+    for (const contribution of contributors) {
+      try {
+        await this.notificationService.notify(
+          contribution.investorId,
+          'MILESTONE',
+          'Project Milestone Failed',
+          `A project you back (${project.title}) has a failed milestone!`,
+          { projectId: project.id, milestoneId: data.milestoneId }
+        );
+      } catch (e) {
+        this.logger.error(`Failed to notify investor ${contribution.investorId} of milestone: ${e.message}`);
+      }
+    }
+
+    // Update trust score for the creator
+    if (project.creatorId) {
+      await this.reputationService.updateTrustScore(project.creatorId);
+      this.logger.log(`Updated trust score for creator ${project.creatorId}`);
+    }
+  }
+}
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma.service';
-import { InsuranceService } from '../../insurance/insurance.service';
-import { ClaimService } from '../../insurance/claim.service';
-import { ClaimStatus } from '../../insurance/enums/claim-status.enum';
 import {
   ParsedContractEvent,
   ContractEventType,
@@ -38,8 +107,10 @@ class ProjectCreatedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectCreatedEvent;
+
     this.logger.log(`Processing PROJECT_CREATED: Project ${data.projectId} by ${data.creator}`);
 
+    // Find or create user
     const user = await this.prisma.user.upsert({
       where: { walletAddress: data.creator },
       update: {},
@@ -49,10 +120,11 @@ class ProjectCreatedHandler implements IEventHandler {
       },
     });
 
+    // Create project
     await this.prisma.project.upsert({
       where: { contractId: data.projectId.toString() },
       update: {
-        title: `Project ${data.projectId}`,
+        title: `Project ${data.projectId}`, // Will be updated with metadata
         goal: BigInt(data.fundingGoal),
         deadline: new Date(data.deadline * 1000),
         status: 'ACTIVE',
@@ -67,6 +139,8 @@ class ProjectCreatedHandler implements IEventHandler {
         status: 'ACTIVE',
       },
     });
+
+    this.logger.log(`Created/updated project ${data.projectId}`);
   }
 }
 
@@ -89,8 +163,12 @@ class ContributionMadeHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ContributionMadeEvent;
-    this.logger.log(`Processing CONTRIBUTION_MADE: ${data.amount} to project ${data.projectId}`);
 
+    this.logger.log(
+      `Processing CONTRIBUTION_MADE: ${data.amount} to project ${data.projectId} from ${data.contributor}`,
+    );
+
+    // Find or create user
     const user = await this.prisma.user.upsert({
       where: { walletAddress: data.contributor },
       update: {},
@@ -100,12 +178,17 @@ class ContributionMadeHandler implements IEventHandler {
       },
     });
 
+    // Find project
     const project = await this.prisma.project.findUnique({
       where: { contractId: data.projectId.toString() },
     });
 
-    if (!project) return;
+    if (!project) {
+      this.logger.warn(`Project ${data.projectId} not found for contribution`);
+      return;
+    }
 
+    // Create contribution
     await this.prisma.contribution.upsert({
       where: { transactionHash: event.transactionHash },
       update: {},
@@ -118,11 +201,15 @@ class ContributionMadeHandler implements IEventHandler {
       },
     });
 
+    // Update project current funds
     await this.prisma.project.update({
       where: { id: project.id },
-      data: { currentFunds: BigInt(data.totalRaised) },
+      data: {
+        currentFunds: BigInt(data.totalRaised),
+      },
     });
 
+    // Dispatch notification
     try {
       await this.notificationService.notify(
         user.id,
@@ -132,8 +219,10 @@ class ContributionMadeHandler implements IEventHandler {
         { projectId: project.id, amount: data.amount }
       );
     } catch (e) {
-      this.logger.error(`Failed to notify user ${user.id}: ${e.message}`);
+      this.logger.error(`Failed to send contribution notification to user ${user.id}: ${e.message}`);
     }
+
+    this.logger.log(`Recorded contribution of ${data.amount} for project ${data.projectId}`);
   }
 }
 
@@ -157,17 +246,35 @@ class MilestoneApprovedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as MilestoneApprovedEvent;
+
+    this.logger.log(
+      `Processing MILESTONE_APPROVED: Milestone ${data.milestoneId} for project ${data.projectId}`,
+    );
+
     const project = await this.prisma.project.findUnique({
       where: { contractId: data.projectId.toString() },
     });
 
-    if (!project) return;
+    if (!project) {
+      this.logger.warn(`Project ${data.projectId} not found for milestone approval`);
+      return;
+    }
 
+    // Update milestone status
+    // Note: milestoneId in contract maps to contract-specific ID,
+    // we may need to query by project + milestone index
     await this.prisma.milestone.updateMany({
-      where: { projectId: project.id },
-      data: { status: 'APPROVED' },
+      where: {
+        projectId: project.id,
+        // This assumes we store contract milestone ID somewhere or use order
+        // You may need to adjust based on your actual data model
+      },
+      data: {
+        status: 'APPROVED',
+      },
     });
 
+    // Notify all contributors of this project
     const contributors = await this.prisma.contribution.findMany({
       where: { projectId: project.id },
       select: { investorId: true },
@@ -183,49 +290,24 @@ class MilestoneApprovedHandler implements IEventHandler {
           `A project you back (${project.title}) has reached a new milestone!`,
           { projectId: project.id, milestoneId: data.milestoneId }
         );
-      } catch (e) {}
+      } catch (e) {
+        this.logger.error(`Failed to notify investor ${contribution.investorId} of milestone: ${e.message}`);
+      }
     }
 
+    this.logger.log(`Approved milestone for project ${data.projectId}`);
+
+    // Update trust score for the creator
     if (project.creatorId) {
       await this.reputationService.updateTrustScore(project.creatorId);
+      this.logger.log(`Updated trust score for creator ${project.creatorId}`);
     }
   }
 }
 
-class MilestoneRejectedHandler implements IEventHandler {
-  readonly eventType = ContractEventType.MILESTONE_REJECTED;
-  private readonly logger = new Logger(MilestoneRejectedHandler.name);
-
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService,
-    private readonly reputationService: ReputationService,
-  ) {}
-
-  validate(event: ParsedContractEvent): boolean {
-    const data = event.data as any;
-    return !!(data.projectId !== undefined && data.milestoneId !== undefined);
-  }
-
-  async handle(event: ParsedContractEvent): Promise<void> {
-    const data = event.data as any;
-    const project = await this.prisma.project.findUnique({
-      where: { contractId: data.projectId.toString() },
-    });
-
-    if (!project) return;
-
-    await this.prisma.milestone.updateMany({
-      where: { projectId: project.id },
-      data: { status: 'REJECTED' },
-    });
-
-    if (project.creatorId) {
-      await this.reputationService.updateTrustScore(project.creatorId);
-    }
-  }
-}
-
+/**
+ * Handler for FUNDS_RELEASED events
+ */
 class FundsReleasedHandler implements IEventHandler {
   readonly eventType = ContractEventType.FUNDS_RELEASED;
   private readonly logger = new Logger(FundsReleasedHandler.name);
@@ -239,19 +321,38 @@ class FundsReleasedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as FundsReleasedEvent;
+
+    this.logger.log(
+      `Processing FUNDS_RELEASED: ${data.amount} for project ${data.projectId}, milestone ${data.milestoneId}`,
+    );
+
     const project = await this.prisma.project.findUnique({
       where: { contractId: data.projectId.toString() },
     });
 
-    if (!project) return;
+    if (!project) {
+      this.logger.warn(`Project ${data.projectId} not found for funds release`);
+      return;
+    }
 
+    // Update milestone to funded status
     await this.prisma.milestone.updateMany({
-      where: { projectId: project.id },
-      data: { status: 'FUNDED', completionDate: event.ledgerClosedAt },
+      where: {
+        projectId: project.id,
+      },
+      data: {
+        status: 'FUNDED',
+        completionDate: event.ledgerClosedAt,
+      },
     });
+
+    this.logger.log(`Released funds for project ${data.projectId}`);
   }
 }
 
+/**
+ * Handler for PROJECT_COMPLETED events
+ */
 class ProjectCompletedHandler implements IEventHandler {
   readonly eventType = ContractEventType.PROJECT_COMPLETED;
   private readonly logger = new Logger(ProjectCompletedHandler.name);
@@ -265,13 +366,21 @@ class ProjectCompletedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
+
+    this.logger.log(`Processing PROJECT_COMPLETED: Project ${data.projectId}`);
+
     await this.prisma.project.updateMany({
       where: { contractId: data.projectId.toString() },
       data: { status: 'COMPLETED' },
     });
+
+    this.logger.log(`Marked project ${data.projectId} as completed`);
   }
 }
 
+/**
+ * Handler for PROJECT_FAILED events
+ */
 class ProjectFailedHandler implements IEventHandler {
   readonly eventType = ContractEventType.PROJECT_FAILED;
   private readonly logger = new Logger(ProjectFailedHandler.name);
@@ -285,62 +394,21 @@ class ProjectFailedHandler implements IEventHandler {
 
   async handle(event: ParsedContractEvent): Promise<void> {
     const data = event.data as unknown as ProjectStatusEvent;
+
+    this.logger.log(`Processing PROJECT_FAILED: Project ${data.projectId}`);
+
     await this.prisma.project.updateMany({
       where: { contractId: data.projectId.toString() },
       data: { status: 'CANCELLED' },
     });
+
+    this.logger.log(`Marked project ${data.projectId} as failed/cancelled`);
   }
 }
 
 /**
- * Insurance Handlers
+ * Service that manages event handlers and routes events to appropriate handlers
  */
-class PolicyCreatedHandler implements IEventHandler {
-  readonly eventType = ContractEventType.POLICY_CREATED;
-  private readonly logger = new Logger(PolicyCreatedHandler.name);
-
-  constructor(private readonly insuranceService: InsuranceService) {}
-
-  validate(event: ParsedContractEvent): boolean {
-    const data = event.data as any;
-    return !!(data.userId && data.poolId && data.coverageAmount);
-  }
-
-  async handle(event: ParsedContractEvent): Promise<void> {
-    const data = event.data as any;
-    this.logger.log(`Processing POLICY_CREATED for user ${data.userId}`);
-    await this.insuranceService.purchasePolicy(
-      data.userId,
-      data.poolId,
-      data.riskType || 'general',
-      Number(data.coverageAmount)
-    );
-  }
-}
-
-class ClaimSubmittedHandler implements IEventHandler {
-  readonly eventType = ContractEventType.CLAIM_SUBMITTED;
-  private readonly logger = new Logger(ClaimSubmittedHandler.name);
-
-  constructor(private readonly claimService: ClaimService) {}
-
-  validate(event: ParsedContractEvent): boolean {
-    const data = event.data as any;
-    return !!(data.claimId && data.policyId && data.amount);
-  }
-
-  async handle(event: ParsedContractEvent): Promise<void> {
-    const data = event.data as any;
-    this.logger.log(`Processing CLAIM_SUBMITTED for policy ${data.policyId}`);
-    await this.claimService.createHistory(
-      data.claimId,
-      ClaimStatus.PENDING,
-      'Claim submitted on-chain',
-      'blockchain'
-    );
-  }
-}
-
 @Injectable()
 export class EventHandlerService implements IEventHandlerRegistry {
   private readonly logger = new Logger(EventHandlerService.name);
@@ -350,12 +418,13 @@ export class EventHandlerService implements IEventHandlerRegistry {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly reputationService: ReputationService,
-    private readonly insuranceService: InsuranceService,
-    private readonly claimService: ClaimService,
   ) {
     this.registerHandlers();
   }
 
+  /**
+   * Register all event handlers
+   */
   private registerHandlers(): void {
     this.register(new ProjectCreatedHandler(this.prisma));
     this.register(new ContributionMadeHandler(this.prisma, this.notificationService));
@@ -364,38 +433,63 @@ export class EventHandlerService implements IEventHandlerRegistry {
     this.register(new FundsReleasedHandler(this.prisma));
     this.register(new ProjectCompletedHandler(this.prisma));
     this.register(new ProjectFailedHandler(this.prisma));
-    
-    // Insurance handlers
-    this.register(new PolicyCreatedHandler(this.insuranceService));
-    this.register(new ClaimSubmittedHandler(this.claimService));
+
+    this.logger.log(`Registered ${this.handlers.size} event handlers`);
   }
 
+  /**
+   * Register an event handler
+   */
   register(handler: IEventHandler): void {
     this.handlers.set(handler.eventType, handler);
+    this.logger.debug(`Registered handler for ${handler.eventType}`);
   }
 
+  /**
+   * Get handler for a specific event type
+   */
   getHandler(eventType: string): IEventHandler | undefined {
     return this.handlers.get(eventType);
   }
 
+  /**
+   * Get all registered handlers
+   */
   getAllHandlers(): IEventHandler[] {
     return Array.from(this.handlers.values());
   }
 
+  /**
+   * Process a parsed contract event
+   * Routes to appropriate handler if available
+   */
   async processEvent(event: ParsedContractEvent): Promise<boolean> {
     const handler = this.getHandler(event.eventType);
-    if (!handler) return false;
+
+    if (!handler) {
+      this.logger.debug(`No handler registered for event type: ${event.eventType}`);
+      return false;
+    }
 
     try {
-      if (!handler.validate(event)) return false;
+      // Validate event data
+      if (!handler.validate(event)) {
+        this.logger.warn(`Event validation failed for ${event.eventType}`);
+        return false;
+      }
+
+      // Process the event
       await handler.handle(event);
       return true;
     } catch (error) {
-      this.logger.error(`Error processing event ${event.eventType}: ${error.message}`);
+      this.logger.error(`Error processing event ${event.eventType}: ${error.message}`, error.stack);
       throw error;
     }
   }
 
+  /**
+   * Check if an event type is supported
+   */
   isSupported(eventType: string): boolean {
     return this.handlers.has(eventType);
   }

@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  OneToMany,
+} from 'typeorm';
+import { InsurancePolicy } from './insurance-policy.entity';
 
 @Entity('reinsurance_contracts')
 export class ReinsuranceContract {
@@ -13,6 +20,9 @@ export class ReinsuranceContract {
 
   @Column('decimal')
   premiumRate: number;
+
+  @OneToMany(() => InsurancePolicy, (policy) => policy.pool)
+  policies: InsurancePolicy[];
 
   @CreateDateColumn()
   createdAt: Date;

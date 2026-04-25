@@ -1,28 +1,29 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne } from 'typeorm';
 import { Claim } from './claim.entity';
-import { ClaimStatus } from '../enums/claim-status.enum';
 
 @Entity('claim_history')
 export class ClaimHistory {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'claim_id' })
+  @Column()
   claimId: string;
 
-  @ManyToOne(() => Claim)
-  @JoinColumn({ name: 'claim_id' })
-  claim: Claim;
-
-  @Column({ type: 'enum', enum: ClaimStatus })
-  status: ClaimStatus;
+  @Column({
+    type: 'varchar',
+    length: 50
+  })
+  status: string;
 
   @Column({ nullable: true })
-  reason: string;
+  reason?: string;
 
-  @Column({ name: 'actor_id', nullable: true })
-  actorId: string; // The person who performed the action
+  @Column({ nullable: true })
+  actorId?: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn()
   createdAt: Date;
+
+  @ManyToOne(() => Claim)
+  claim: Claim;
 }

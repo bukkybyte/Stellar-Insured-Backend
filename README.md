@@ -22,6 +22,12 @@ Fraud detection and monitoring
 
 Analytics and reporting APIs
 
+🗂️ Data Model Notes
+
+Insurance is the primary product domain for this service.
+
+The Prisma schema includes insurance models for pools, policies, claims, reinsurance contracts, and audit logs. Legacy project/contribution models remain in place because the Stellar event indexer, reputation scoring, and notification flows still depend on them while the broader data layer is being consolidated.
+
 🧑‍💻 Tech Stack
 
 Framework: NestJS

@@ -1,52 +1,81 @@
-import { Controller, Get, Param, Post, Body, Put, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AccessGuard } from '../auth/access.guard';
-import { CsrfGuard } from '../csrf/csrf.guard';
-import { GetUserDto } from './dto/get-user.dto';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UserResponseDto } from './dto/user-response.dto';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  DefaultValuePipe,
+  ParseIntPipe,
+  UseGuards,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UserService } from './user.service';
+import { UserParamsDto } from './dto/user-params.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@ApiTags('users')
-@ApiBearerAuth()
-@Controller('api/user')
-@UseGuards(JwtAuthGuard, AccessGuard)
+@Controller({ path: 'user', version: '1' })
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @Throttle({ default: { limit: 100, ttl: 60000 } }) // 100 users list requests per minute
+  @Get()
+  async getUsers(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+  ) {
+    return this.userService.findPaginated(page, limit);
+  }
+
+  @Throttle({ default: { limit: 100, ttl: 60000 } }) // 100 user lookups per minute
   @Get(':id')
-  @ApiOperation({ summary: 'Get user by ID' })
-  @ApiParam({ name: 'id', description: 'User ID' })
-  @ApiResponse({ status: 200, description: 'User found successfully', type: UserResponseDto })
-  @ApiResponse({ status: 404, description: 'User not found' })
-  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
-  @ApiResponse({ status: 403, description: 'Forbidden - principal mismatch' })
-  async getUser(@Param() params: GetUserDto, @Request() req: any): Promise<UserResponseDto> {
-    return this.userService.getUserById(params.id, req.user.id);
+  async getUser(@Param() params: UserParamsDto) {
+    const user = await this.userService.findById(params.id);
+    return this.mapUserResponse(user);
   }
 
-  @Post()
-  @UseGuards(CsrfGuard)
-  @ApiOperation({ summary: 'Create a new user' })
-  @ApiResponse({ status: 201, description: 'User created successfully', type: UserResponseDto })
-  @ApiResponse({ status: 400, description: 'Bad request - invalid input data' })
-  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
-  async createUser(@Body() dto: CreateUserDto, @Request() req: any): Promise<UserResponseDto> {
-    return this.userService.createUser(dto, req.user.id);
+  @Throttle({ default: { limit: 100, ttl: 60000 } }) // 100 wallet lookups per minute
+  @Get('wallet/:address')
+  async getUserByWallet(@Param('address') address: string) {
+    const user = await this.userService.findByWallet(address);
+    return this.mapUserResponse(user);
   }
 
-  @Put(':id')
-  @UseGuards(CsrfGuard)
-  @ApiOperation({ summary: 'Update user by ID' })
-  @ApiParam({ name: 'id', description: 'User ID' })
-  @ApiResponse({ status: 200, description: 'User updated successfully', type: UserResponseDto })
-  @ApiResponse({ status: 404, description: 'User not found' })
-  @ApiResponse({ status: 400, description: 'Bad request - invalid input data' })
-  @ApiResponse({ status: 401, description: 'Unauthorized - JWT token required' })
-  @ApiResponse({ status: 403, description: 'Forbidden - principal mismatch' })
-  async updateUser(@Param() params: GetUserDto, @Body() dto: UpdateUserDto, @Request() req: any): Promise<UserResponseDto> {
-    return this.userService.updateUser(params.id, req.user.id, dto);
+  @Throttle({ default: { limit: 20, ttl: 3600000 } }) // 20 updates per hour per user
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  async updateUser(
+    @Param() params: UserParamsDto,
+    @Body() updateData: UpdateUserDto,
+  ) {
+    const user = await this.userService.update(params.id, updateData);
+    return this.mapUserResponse(user);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 3600000 } }) // 5 deletions per hour per user
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  async deleteUser(@Param() params: UserParamsDto) {
+    const result = await this.userService.delete(params.id);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  private mapUserResponse(user: any) {
+    return {
+      id: user.id,
+      walletAddress: user.walletAddress,
+      reputationScore: user.reputationScore,
+      trustScore: user.trustScore,
+      email: user.email,
+      profileData: user.profileData,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 }

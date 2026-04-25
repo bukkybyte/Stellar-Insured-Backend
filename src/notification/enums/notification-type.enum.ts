@@ -1,0 +1,6 @@
+export enum NotificationType {
+  CONTRIBUTION = 'CONTRIBUTION',
+  MILESTONE = 'MILESTONE',
+  DEADLINE = 'DEADLINE',
+  SYSTEM = 'SYSTEM',
+}

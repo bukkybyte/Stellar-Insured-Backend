@@ -18,6 +18,9 @@ const common_1 = require("@nestjs/common");
 const insurance_service_1 = require("./insurance.service");
 const claim_service_1 = require("./claim.service");
 const reinsurance_service_1 = require("./reinsurance.service");
+const purchase_policy_dto_1 = require("./dto/purchase-policy.dto");
+const create_reinsurance_dto_1 = require("./dto/create-reinsurance.dto");
+const idempotency_interceptor_1 = require("../interceptors/idempotency.interceptor");
 let InsuranceController = class InsuranceController {
     constructor(insurance, claims, reinsurance) {
         this.insurance = insurance;
@@ -40,14 +43,16 @@ let InsuranceController = class InsuranceController {
 exports.InsuranceController = InsuranceController;
 __decorate([
     (0, common_1.Post)('purchase'),
+    (0, common_1.UseInterceptors)(idempotency_interceptor_1.IdempotencyInterceptor),
     openapi.ApiResponse({ status: 201, type: require("./entities/insurance-policy.entity").InsurancePolicy }),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [purchase_policy_dto_1.PurchasePolicyDto]),
     __metadata("design:returntype", Promise)
 ], InsuranceController.prototype, "purchase", null);
 __decorate([
     (0, common_1.Post)('claims/:claimId/assess'),
+    (0, common_1.UseInterceptors)(idempotency_interceptor_1.IdempotencyInterceptor),
     openapi.ApiResponse({ status: 201, type: require("./entities/claim.entity").Claim }),
     __param(0, (0, common_1.Param)('claimId')),
     __metadata("design:type", Function),
@@ -56,6 +61,7 @@ __decorate([
 ], InsuranceController.prototype, "assessClaim", null);
 __decorate([
     (0, common_1.Post)('claims/:claimId/pay'),
+    (0, common_1.UseInterceptors)(idempotency_interceptor_1.IdempotencyInterceptor),
     openapi.ApiResponse({ status: 201, type: require("./entities/claim.entity").Claim }),
     __param(0, (0, common_1.Param)('claimId')),
     __metadata("design:type", Function),
@@ -64,10 +70,11 @@ __decorate([
 ], InsuranceController.prototype, "payClaim", null);
 __decorate([
     (0, common_1.Post)('reinsurance'),
+    (0, common_1.UseInterceptors)(idempotency_interceptor_1.IdempotencyInterceptor),
     openapi.ApiResponse({ status: 201, type: require("./entities/reinsurance-contract.entity").ReinsuranceContract }),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [create_reinsurance_dto_1.CreateReinsuranceDto]),
     __metadata("design:returntype", Promise)
 ], InsuranceController.prototype, "createReinsurance", null);
 exports.InsuranceController = InsuranceController = __decorate([

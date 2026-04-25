@@ -1,0 +1,71 @@
+/**
+ * ErrorCode
+ *
+ * Single source of truth for every error code returned by the API.
+ * Clients can switch on `error.code` to handle specific error types
+ * without parsing human-readable messages.
+ *
+ * Naming convention:  DOMAIN_DESCRIPTION  (screaming snake-case)
+ */
+export enum ErrorCode {
+  // ── Generic ──────────────────────────────────────────────────────────────
+  INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
+  BAD_REQUEST = 'BAD_REQUEST',
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+  NOT_FOUND = 'NOT_FOUND',
+  CONFLICT = 'CONFLICT',
+  UNPROCESSABLE_ENTITY = 'UNPROCESSABLE_ENTITY',
+  TOO_MANY_REQUESTS = 'TOO_MANY_REQUESTS',
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
+
+  // ── Validation ───────────────────────────────────────────────────────────
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  INVALID_INPUT = 'INVALID_INPUT',
+  MISSING_REQUIRED_FIELD = 'MISSING_REQUIRED_FIELD',
+
+  // ── Authentication / Authorization ───────────────────────────────────────
+  AUTH_INVALID_CREDENTIALS = 'AUTH_INVALID_CREDENTIALS',
+  AUTH_TOKEN_EXPIRED = 'AUTH_TOKEN_EXPIRED',
+  AUTH_TOKEN_INVALID = 'AUTH_TOKEN_INVALID',
+  AUTH_TOKEN_MISSING = 'AUTH_TOKEN_MISSING',
+  AUTH_REFRESH_TOKEN_INVALID = 'AUTH_REFRESH_TOKEN_INVALID',
+  AUTH_NONCE_INVALID = 'AUTH_NONCE_INVALID',
+  AUTH_NONCE_EXPIRED = 'AUTH_NONCE_EXPIRED',
+  AUTH_INSUFFICIENT_PERMISSIONS = 'AUTH_INSUFFICIENT_PERMISSIONS',
+
+  // ── User ─────────────────────────────────────────────────────────────────
+  USER_NOT_FOUND = 'USER_NOT_FOUND',
+  USER_ALREADY_EXISTS = 'USER_ALREADY_EXISTS',
+  USER_WALLET_ALREADY_LINKED = 'USER_WALLET_ALREADY_LINKED',
+  USER_ACCOUNT_DISABLED = 'USER_ACCOUNT_DISABLED',
+
+  // ── Insurance / Policy ───────────────────────────────────────────────────
+  POLICY_NOT_FOUND = 'POLICY_NOT_FOUND',
+  POLICY_ALREADY_EXISTS = 'POLICY_ALREADY_EXISTS',
+  POLICY_EXPIRED = 'POLICY_EXPIRED',
+  POLICY_INACTIVE = 'POLICY_INACTIVE',
+  POLICY_LIMIT_EXCEEDED = 'POLICY_LIMIT_EXCEEDED',
+
+  // ── Claims ───────────────────────────────────────────────────────────────
+  CLAIM_NOT_FOUND = 'CLAIM_NOT_FOUND',
+  CLAIM_ALREADY_SUBMITTED = 'CLAIM_ALREADY_SUBMITTED',
+  CLAIM_INVALID_STATUS_TRANSITION = 'CLAIM_INVALID_STATUS_TRANSITION',
+  CLAIM_LIMIT_EXCEEDED = 'CLAIM_LIMIT_EXCEEDED',
+
+  // ── Stellar / Blockchain ─────────────────────────────────────────────────
+  STELLAR_TRANSACTION_FAILED = 'STELLAR_TRANSACTION_FAILED',
+  STELLAR_INVALID_WALLET_ADDRESS = 'STELLAR_INVALID_WALLET_ADDRESS',
+  STELLAR_INSUFFICIENT_FUNDS = 'STELLAR_INSUFFICIENT_FUNDS',
+  STELLAR_CONTRACT_ERROR = 'STELLAR_CONTRACT_ERROR',
+
+  // ── Storage / Files ──────────────────────────────────────────────────────
+  STORAGE_UPLOAD_FAILED = 'STORAGE_UPLOAD_FAILED',
+  STORAGE_FILE_NOT_FOUND = 'STORAGE_FILE_NOT_FOUND',
+  STORAGE_FILE_TOO_LARGE = 'STORAGE_FILE_TOO_LARGE',
+  STORAGE_UNSUPPORTED_FILE_TYPE = 'STORAGE_UNSUPPORTED_FILE_TYPE',
+
+  // ── Rate Limiting ────────────────────────────────────────────────────────
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  RATE_LIMIT_CIRCUIT_OPEN = 'RATE_LIMIT_CIRCUIT_OPEN',
+}

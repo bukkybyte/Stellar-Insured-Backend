@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as sgMail from '@sendgrid/mail';
 import { PrismaService } from '../../prisma.service';
 
@@ -7,24 +6,21 @@ import { PrismaService } from '../../prisma.service';
 export class EmailService {
     private readonly logger = new Logger(EmailService.name);
 
-    constructor(
-        private readonly prisma: PrismaService,
-        private readonly configService: ConfigService,
-    ) {
-        sgMail.setApiKey(this.configService.get<string>('SENDGRID_API_KEY') || '');
+    constructor(private readonly prisma: PrismaService) {
+        // Note: Provide SENDGRID_API_KEY in .env
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
     }
 
     async sendEmail(to: string, subject: string, html: string): Promise<void> {
         try {
-            const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
-            if (!apiKey) {
+            if (!process.env.SENDGRID_API_KEY) {
                 this.logger.warn('SENDGRID_API_KEY not set. Email not sent.');
                 return;
             }
 
             const msg = {
                 to,
-                from: this.configService.get<string>('SENDGRID_FROM_EMAIL'),
+                from: process.env.SENDGRID_FROM_EMAIL || 'noreply@novafund.xyz',
                 subject,
                 html,
             };

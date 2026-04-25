@@ -71,17 +71,9 @@ export enum ContractEventType {
   // Contract lifecycle events
   CONTRACT_PAUSED = 'esc_pause',
   CONTRACT_RESUMED = 'esc_resum',
-  // Lifecycle events
   UPGRADE_SCHEDULED = 'upg_sched',
   UPGRADE_EXECUTED = 'upg_exec',
   UPGRADE_CANCELLED = 'upg_canc',
-
-  // Insurance events
-  POLICY_CREATED = 'pol_new',
-  POLICY_ACTIVATED = 'pol_active',
-  CLAIM_SUBMITTED = 'clm_new',
-  CLAIM_ASSESSED = 'clm_assess',
-  CLAIM_PAID = 'clm_paid',
 }
 
 /**

@@ -19,7 +19,19 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "benchmark:before": "node scripts/benchmark.js && mv benchmark-results.json benchmark-before.json",
-    "benchmark:after": "node scripts/benchmark.js && mv benchmark-results.json benchmark-after.json"
+    "benchmark:after": "node scripts/benchmark.js && mv benchmark-results.json benchmark-after.json",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:generate": "prisma migrate dev --name",
+    "prisma:migrate:reset": "prisma migrate reset",
+    "prisma:generate": "prisma generate",
+    "prisma:studio": "prisma studio",
+    "typeorm:migrate:generate": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:generate -d ormconfig.ts",
+    "typeorm:migrate:run": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:run -d ormconfig.ts",
+    "typeorm:migrate:revert": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:revert -d ormconfig.ts",
+    "typeorm:migrate:show": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:show -d ormconfig.ts",
+    "db:migrate": "npm run prisma:migrate:deploy && npm run typeorm:migrate:run",
+    "db:migrate:dev": "npm run prisma:migrate:dev && npm run typeorm:migrate:run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.996.0",
@@ -45,7 +57,6 @@
     "@sendgrid/mail": "^8.1.6",
     "@sentry/integrations": "^7.108.0",
     "@sentry/node": "^7.108.0",
-    "@types/sharp": "^0.31.1",
     "amqp-connection-manager": "^5.0.0",
     "amqplib": "^0.10.9",
     "axios": "^1.8.4",
@@ -55,9 +66,8 @@
     "cache-manager": "^7.2.8",
     "cache-manager-redis-store": "^3.0.1",
     "cache-manager-redis-yet": "^5.1.5",
-    "class-sanitizer": "^1.0.1",
     "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.4",
+    "class-validator": "^0.14.3",
     "cookie-parser": "^1.4.7",
     "csurf": "^1.11.0",
     "express-winston": "^4.2.0",
@@ -131,8 +141,7 @@
       "ts"
     ],
     "roots": [
-      "src",
-      "test"
+      "src"
     ],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {

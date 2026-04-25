@@ -9,18 +9,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.InsuranceModule = void 0;
 const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
+const prisma_service_1 = require("../prisma.service");
 const insurance_policy_entity_1 = require("./entities/insurance-policy.entity");
 const insurance_pool_entity_1 = require("./entities/insurance-pool.entity");
 const claim_entity_1 = require("./entities/claim.entity");
 const reinsurance_contract_entity_1 = require("./entities/reinsurance-contract.entity");
-const claim_history_entity_1 = require("./entities/claim-history.entity");
-const policy_history_entity_1 = require("./entities/policy-history.entity");
 const insurance_controller_1 = require("./insurance.controller");
 const insurance_service_1 = require("./insurance.service");
 const pool_service_1 = require("./pool.service");
 const claim_service_1 = require("./claim.service");
 const reinsurance_service_1 = require("./reinsurance.service");
 const pricing_service_1 = require("./pricing.service");
+const idempotency_interceptor_1 = require("../interceptors/idempotency.interceptor");
 let InsuranceModule = class InsuranceModule {
 };
 exports.InsuranceModule = InsuranceModule;
@@ -32,8 +32,6 @@ exports.InsuranceModule = InsuranceModule = __decorate([
                 insurance_pool_entity_1.InsurancePool,
                 claim_entity_1.Claim,
                 reinsurance_contract_entity_1.ReinsuranceContract,
-                claim_history_entity_1.ClaimHistory,
-                policy_history_entity_1.PolicyHistory,
             ]),
         ],
         controllers: [insurance_controller_1.InsuranceController],
@@ -43,6 +41,8 @@ exports.InsuranceModule = InsuranceModule = __decorate([
             claim_service_1.ClaimService,
             reinsurance_service_1.ReinsuranceService,
             pricing_service_1.PricingService,
+            prisma_service_1.PrismaService,
+            idempotency_interceptor_1.IdempotencyInterceptor,
         ],
         exports: [
             insurance_service_1.InsuranceService,
@@ -50,6 +50,7 @@ exports.InsuranceModule = InsuranceModule = __decorate([
             claim_service_1.ClaimService,
             reinsurance_service_1.ReinsuranceService,
             pricing_service_1.PricingService,
+            prisma_service_1.PrismaService,
         ],
     })
 ], InsuranceModule);
