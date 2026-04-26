@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { RiskType } from '../enums/risk-type.enum';
+import { PolicyStatus } from '../enums/policy-status.enum';
 import { Claim } from './claim.entity';
 import { ReinsuranceContract } from './reinsurance-contract.entity';
 
@@ -21,6 +22,15 @@ export class InsurancePolicy {
 
   @Column({ type: 'enum', enum: RiskType })
   riskType: RiskType;
+
+  @Column({ type: 'enum', enum: PolicyStatus, default: PolicyStatus.ACTIVE })
+  status: PolicyStatus;
+
+  @Column({ type: 'timestamp', nullable: true })
+  startDate: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  endDate: Date;
 
   @Column('decimal')
   premium: number;

@@ -15,6 +15,8 @@ export enum AuditAction {
   PAYOUT = 'PAYOUT',
   PURCHASE = 'PURCHASE',
   ADD_CAPITAL = 'ADD_CAPITAL',
+  FRAUD_DETECTED = 'FRAUD_DETECTED',
+  ORACLE_VERIFIED = 'ORACLE_VERIFIED',
 }
 
 @Entity('audit_logs')

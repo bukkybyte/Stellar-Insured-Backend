@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -17,7 +18,12 @@ export class Claim {
   @Column()
   policyId: string;
 
-<<<<<<< HEAD
+  @ManyToOne(() => InsurancePolicy, (policy) => policy.claims, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'policyId' })
+  policy: InsurancePolicy;
+
   @Column('decimal')
   claimAmount: number;
 
@@ -31,30 +37,12 @@ export class Claim {
   })
   status: ClaimStatus;
 
-  @Column({ nullable: true })
-=======
-  @ManyToOne(() => InsurancePolicy, (policy) => policy.claims, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'policyId' })
-  policy: InsurancePolicy;
-
-  @Column('decimal')
-  claimAmount: number;
-
-  @Column({ type: 'enum', enum: ClaimStatus, default: ClaimStatus.PENDING })
-  status: ClaimStatus;
-
   @Column('decimal', { nullable: true })
->>>>>>> f521d5bf94f52c42a24af763b17bbea68299cfb8
   payoutAmount?: number;
 
   @CreateDateColumn()
   createdAt: Date;
-<<<<<<< HEAD
 
   @UpdateDateColumn()
   updatedAt: Date;
-=======
->>>>>>> f521d5bf94f52c42a24af763b17bbea68299cfb8
 }
