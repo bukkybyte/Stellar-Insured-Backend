@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { UserService } from './user.service';
 
 const prisma = {
@@ -25,6 +25,11 @@ describe('UserService', () => {
     jest.clearAllMocks();
   });
 
+  it('rejects invalid user ID format in findById', async () => {
+    await expect(service.findById('<script>alert(1)</script>')).rejects.toThrow(BadRequestException);
+    await expect(service.findById('DROP TABLE users;')).rejects.toThrow(BadRequestException);
+  });
+
   it('filters soft-deleted users from id lookups', async () => {
     prisma.user.findFirst.mockResolvedValue(null);
 
@@ -35,6 +40,11 @@ describe('UserService', () => {
         deletedAt: null,
       },
     });
+  });
+
+  it('rejects invalid wallet address format in findByWallet', async () => {
+    await expect(service.findByWallet('<script>evil()</script>')).rejects.toThrow(BadRequestException);
+    await expect(service.findByWallet("'; DROP TABLE users;--")).rejects.toThrow(BadRequestException);
   });
 
   it('filters soft-deleted users from wallet lookups', async () => {
@@ -102,6 +112,10 @@ describe('UserService', () => {
       id: 'user-1',
       deletedAt: new Date('2026-04-24T00:00:00.000Z'),
     });
+  });
+
+  it('rejects invalid wallet address format in create', async () => {
+    await expect(service.create('<script>evil()</script>')).rejects.toThrow(BadRequestException);
   });
 
   it('prevents duplicate active wallet addresses during create', async () => {

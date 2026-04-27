@@ -21,7 +21,9 @@ import {
 } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import { UserParamsDto } from './dto/user-params.dto';
+import { WalletAddressDto } from './dto/wallet-address.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { sanitizeObject } from '../common/utils/sanitization.util';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -57,8 +59,8 @@ export class UserController {
   @ApiOperation({ summary: 'Retrieve a user by wallet address' })
   @ApiParam({ name: 'address', type: String, description: 'Wallet address to search by' })
   @ApiOkResponse({ description: 'User data associated with the wallet address' })
-  async getUserByWallet(@Param('address') address: string) {
-    const user = await this.userService.findByWallet(address);
+  async getUserByWallet(@Param() params: WalletAddressDto) {
+    const user = await this.userService.findByWallet(params.address);
     return this.mapUserResponse(user);
   }
 
@@ -96,7 +98,7 @@ export class UserController {
       reputationScore: user.reputationScore,
       trustScore: user.trustScore,
       email: user.email,
-      profileData: user.profileData,
+      profileData: user.profileData ? sanitizeObject(user.profileData) : null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
