@@ -9,6 +9,11 @@ This project uses two database ORMs: **Prisma** and **TypeORM**. Both require pr
 
 ## Prisma Migrations
 
+### Baseline
+
+The project now includes an initial baseline migration in `prisma/migrations/00000000000000_init/`.
+Committed migration directories are the single source of truth for Prisma schema changes.
+
 ### Development
 
 Create a new migration:
@@ -42,6 +47,11 @@ This applies migrations without modifying the migration history.
 
 ## TypeORM Migrations
 
+### Baseline
+
+This repository now includes a starting TypeORM migration at `src/insurance/migrations/00000000000000-InitialInsuranceSchema.ts`.
+This migration establishes the initial insurance-related tables and enum types for the TypeORM-managed subset of the database.
+
 ### Development
 
 Generate a new migration from entity changes:
@@ -49,7 +59,7 @@ Generate a new migration from entity changes:
 npm run typeorm:migrate:generate -- -n AddPolicyFields
 ```
 
-This creates a migration file in `insurance/migrations/` based on differences between entities and database.
+This creates a migration file in `src/insurance/migrations/` based on differences between entities and database.
 
 Run migrations:
 ```bash
