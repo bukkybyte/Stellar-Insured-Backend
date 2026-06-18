@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
-    "ignoreDeprecations": "6.0",
     "module": "commonjs",
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",
     "declaration": true,
     "removeComments": true,
     "emitDecoratorMetadata": true,
