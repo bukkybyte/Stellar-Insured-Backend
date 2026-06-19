@@ -10,6 +10,7 @@ import * as expressWinston from 'express-winston';
 import * as winston from 'winston';
 
 async function bootstrap() {
+  const bootstrapLogger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule, {
     logger: logger,
   });
@@ -102,7 +103,7 @@ async function bootstrap() {
   server.keepAliveTimeout = keepAliveTimeoutMs;
   server.headersTimeout = requestTimeoutMs + 10000;
 
-  logger.log(`Application is running on: http://localhost:${port}/${apiPrefix}`);
+  bootstrapLogger.log(`Application is running on: http://localhost:${port}/${apiPrefix}`);
 
   // Graceful shutdown handling
   // Ensures the server stops accepting new requests, closes the HTTP server,
@@ -114,7 +115,7 @@ async function bootstrap() {
     if (isShuttingDown) return;
     isShuttingDown = true;
 
-    logger.log(`${signal} received. Starting graceful shutdown...`);
+    bootstrapLogger.log(`${signal} received. Starting graceful shutdown...`);
 
     const forceExitTimer = setTimeout(() => {
       logger.error('Forced shutdown after timeout — could not complete gracefully');
@@ -125,17 +126,17 @@ async function bootstrap() {
       // Stop accepting new connections
       const server = app.getHttpServer();
       server.close(() => {
-        logger.log('HTTP server closed — no longer accepting requests');
+        bootstrapLogger.log('HTTP server closed — no longer accepting requests');
       });
 
       // Close the NestJS app (triggers onModuleDestroy, onApplicationShutdown hooks)
       await app.close();
 
       clearTimeout(forceExitTimer);
-      logger.log('Graceful shutdown completed successfully');
+      bootstrapLogger.log('Graceful shutdown completed successfully');
       process.exit(0);
     } catch (error) {
-      logger.error(`Error during graceful shutdown: ${error.message}`);
+      bootstrapLogger.error(`Error during graceful shutdown: ${error.message}`);
       clearTimeout(forceExitTimer);
       process.exit(1);
     }
