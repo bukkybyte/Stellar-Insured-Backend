@@ -33,10 +33,10 @@ describe('UserService', () => {
   it('filters soft-deleted users from id lookups', async () => {
     prisma.user.findFirst.mockResolvedValue(null);
 
-    await expect(service.findById('user-1')).rejects.toThrow(NotFoundException);
+    await expect(service.findById('clabcdefghij')).rejects.toThrow(NotFoundException);
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
       where: {
-        id: 'user-1',
+        id: 'clabcdefghij',
         deletedAt: null,
       },
     });
@@ -90,26 +90,26 @@ describe('UserService', () => {
 
   it('marks a user as deleted instead of hard deleting the record', async () => {
     prisma.user.findFirst.mockResolvedValue({
-      id: 'user-1',
+      id: 'clabcdefghij',
       walletAddress: 'encrypted:GABC123',
       createdAt: new Date(),
       updatedAt: new Date(),
     });
     prisma.user.update.mockResolvedValue({
-      id: 'user-1',
+      id: 'clabcdefghij',
       deletedAt: new Date('2026-04-24T00:00:00.000Z'),
     });
 
-    const result = await service.delete('user-1');
+    const result = await service.delete('clabcdefghij');
 
     expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 'user-1' },
+      where: { id: 'clabcdefghij' },
       data: {
         deletedAt: expect.any(Date),
       },
     });
     expect(result).toEqual({
-      id: 'user-1',
+      id: 'clabcdefghij',
       deletedAt: new Date('2026-04-24T00:00:00.000Z'),
     });
   });

@@ -24,6 +24,7 @@ import { UserParamsDto } from './dto/user-params.dto';
 import { WalletAddressDto } from './dto/wallet-address.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { sanitizeObject } from '../common/utils/sanitization.util';
+import { User } from '@prisma/client';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -91,7 +92,7 @@ export class UserController {
     };
   }
 
-  private mapUserResponse(user: any) {
+  private mapUserResponse(user: User) {
     return {
       id: user.id,
       walletAddress: user.walletAddress,

@@ -39,13 +39,13 @@ export class ClaimService {
 
     // 1. Verify policy is active
     if (policy.status !== PolicyStatus.ACTIVE) {
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, `Policy is not active: ${policy.status}`, 'system');
+      await this.updateStatus(claim, ClaimStatus.REJECTED, `Policy is not active: ${policy.status}`);
       throw new BadRequestException('Cannot approve claim for inactive policy');
     }
 
     // 2. Check coverage limits
     if (Number(claim.claimAmount) > Number(policy.coverageAmount)) {
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Claim amount exceeds coverage', 'system');
+      await this.updateStatus(claim, ClaimStatus.REJECTED, 'Claim amount exceeds coverage');
       throw new BadRequestException('Claim amount exceeds policy coverage amount');
     }
 
@@ -67,7 +67,7 @@ export class ClaimService {
     // 4. Oracle Verification
     const oracleVerified = await this.verifyOracle(claimId);
     if (!oracleVerified) {
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Oracle verification failed', 'system');
+      await this.updateStatus(claim, ClaimStatus.REJECTED, 'Oracle verification failed');
       throw new BadRequestException('Oracle verification failed');
     }
 
@@ -82,29 +82,25 @@ export class ClaimService {
   }
 
   private async updateStatus(
-    claimId: string, 
-    status: ClaimStatus, 
-    reason: string, 
-    user: string,
-    additionalData: any = {}
+    claim: Claim,
+    status: ClaimStatus,
+    reason: string,
+    additionalData: { payoutAmount?: number } = {}
   ): Promise<Claim> {
-    const claim = await this.repo.findOne({ where: { id: claimId } });
-    if (!claim) throw new NotFoundException('Claim not found');
-    
     const beforeState = { ...claim };
     claim.status = status;
     if (additionalData.payoutAmount) {
       claim.payoutAmount = additionalData.payoutAmount;
     }
-    
+
     const updated = await this.repo.save(claim);
-    
+
     if (status === ClaimStatus.REJECTED) {
-      await this.auditService.logReject('Claim', claimId, beforeState, updated, reason);
+      await this.auditService.logReject('Claim', claim.id, beforeState, updated, reason);
     } else if (status === ClaimStatus.APPROVED) {
-      await this.auditService.logApprove('Claim', claimId, beforeState, updated, undefined, reason);
+      await this.auditService.logApprove('Claim', claim.id, beforeState, updated, undefined, reason);
     }
-    
+
     return updated;
   }
 
@@ -208,9 +204,11 @@ export class ClaimService {
   }
 
   async createClaim(policyId: string, claimAmount: number): Promise<Claim> {
+    // Encrypt for audit/transmission; store numeric amount in DB
+    this.encryption.encrypt(claimAmount.toString());
     const claim = this.repo.create({
       policyId,
-      claimAmount: parseFloat(this.encryption.encrypt(claimAmount.toString())),
+      claimAmount,
       status: ClaimStatus.PENDING,
     });
     const savedClaim = await this.repo.save(claim);
