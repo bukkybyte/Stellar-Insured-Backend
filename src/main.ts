@@ -3,7 +3,7 @@ import { ValidationPipe, VersioningType, Logger } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
-import * as csurf from 'csurf';
+import csurf from 'csurf';
 import * as cookieParser from 'cookie-parser';
 import { logger } from './config/winston.config';
 import * as expressWinston from 'express-winston';
