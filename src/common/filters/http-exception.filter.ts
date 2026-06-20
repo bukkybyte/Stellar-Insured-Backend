@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { QueryFailedError } from 'typeorm';
+import { Prisma } from '@prisma/client';
 import { ThrottlerException } from '@nestjs/throttler';
 import { ErrorCode } from '../enums/error-codes.enum';
 import {
@@ -131,12 +131,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       };
     }
 
-    // 3. TypeORM constraint violations (e.g. unique key, not-null)
-    if (exception instanceof QueryFailedError) {
-      const pgCode = (exception as any).code as string | undefined;
-
-      if (pgCode === '23505') {
-        // unique_violation
+    // 3. Prisma constraint violations (e.g. unique key, foreign key)
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      if (exception.code === 'P2002') {
+        // Unique constraint violation
         return {
           status: HttpStatus.CONFLICT,
           code: ErrorCode.CONFLICT,
@@ -144,8 +142,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
         };
       }
 
-      if (pgCode === '23503') {
-        // foreign_key_violation
+      if (exception.code === 'P2003') {
+        // Foreign key constraint violation
         return {
           status: HttpStatus.UNPROCESSABLE_ENTITY,
           code: ErrorCode.UNPROCESSABLE_ENTITY,

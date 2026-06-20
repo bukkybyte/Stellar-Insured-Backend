@@ -1,31 +1,30 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, MoreThan } from 'typeorm';
-import { Claim } from './entities/claim.entity';
-import { InsurancePolicy } from './entities/insurance-policy.entity';
 import { ClaimStatus } from './enums/claim-status.enum';
 import { PolicyStatus } from './enums/policy-status.enum';
+import { AuditAction } from './enums/audit-action.enum';
+import { PrismaService } from '../prisma.service';
 import { EncryptionService } from '../encryption/encryption.service';
 import { AuditService } from './services/audit.service';
-import { AuditAction } from './entities/audit-log.entity';
+import { Claim, InsurancePolicy } from '@prisma/client';
+
+type ClaimWithPolicy = Claim & { policy: InsurancePolicy };
 
 @Injectable()
 export class ClaimService {
   private readonly logger = new Logger(ClaimService.name);
 
   constructor(
-    @InjectRepository(Claim) private readonly repo: Repository<Claim>,
-    @InjectRepository(InsurancePolicy) private readonly policyRepo: Repository<InsurancePolicy>,
+    private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
     private readonly auditService: AuditService,
   ) {}
 
-  async assessClaim(claimId: string): Promise<Claim> {
-    const claim = await this.repo.findOne({ 
+  async assessClaim(claimId: string): Promise<ClaimWithPolicy> {
+    const claim = await this.prisma.claim.findUnique({
       where: { id: claimId },
-      relations: ['policy']
-    });
-    
+      include: { policy: true },
+    }) as ClaimWithPolicy | null;
+
     if (!claim) {
       throw new NotFoundException(`Claim with ID ${claimId} not found`);
     }
@@ -60,7 +59,7 @@ export class ClaimService {
         beforeState,
         claim,
         undefined,
-        'High fraud risk score detected'
+        'High fraud risk score detected',
       );
     }
 
@@ -72,97 +71,101 @@ export class ClaimService {
     }
 
     // 5. Automated Approval
-    claim.status = ClaimStatus.APPROVED;
-    claim.payoutAmount = claim.claimAmount;
-    const updatedClaim = await this.repo.save(claim);
+    const updatedClaim = await this.prisma.claim.update({
+      where: { id: claimId },
+      data: { status: ClaimStatus.APPROVED, payoutAmount: claim.claimAmount },
+      include: { policy: true },
+    }) as ClaimWithPolicy;
 
     await this.auditService.logApprove('Claim', claimId, beforeState, updatedClaim);
-    
+
     return updatedClaim;
   }
 
   private async updateStatus(
-    claimId: string, 
-    status: ClaimStatus, 
-    reason: string, 
-    user: string,
-    additionalData: any = {}
-  ): Promise<Claim> {
-    const claim = await this.repo.findOne({ where: { id: claimId } });
-    if (!claim) throw new NotFoundException('Claim not found');
-    
-    const beforeState = { ...claim };
-    claim.status = status;
-    if (additionalData.payoutAmount) {
-      claim.payoutAmount = additionalData.payoutAmount;
-    }
-    
-    const updated = await this.repo.save(claim);
-    
+    claimId: string,
+    status: ClaimStatus,
+    reason: string,
+    _user: string,
+    additionalData: { payoutAmount?: any } = {},
+  ): Promise<ClaimWithPolicy> {
+    const existing = await this.prisma.claim.findUnique({ where: { id: claimId }, include: { policy: true } }) as ClaimWithPolicy | null;
+    if (!existing) throw new NotFoundException('Claim not found');
+
+    const beforeState = { ...existing };
+    const updated = await this.prisma.claim.update({
+      where: { id: claimId },
+      data: {
+        status,
+        ...(additionalData.payoutAmount !== undefined && { payoutAmount: additionalData.payoutAmount }),
+      },
+      include: { policy: true },
+    }) as ClaimWithPolicy;
+
     if (status === ClaimStatus.REJECTED) {
       await this.auditService.logReject('Claim', claimId, beforeState, updated, reason);
     } else if (status === ClaimStatus.APPROVED) {
       await this.auditService.logApprove('Claim', claimId, beforeState, updated, undefined, reason);
     }
-    
+
     return updated;
   }
 
   private async runFraudDetection(claim: Claim): Promise<boolean> {
-    const fraudIndicators = [];
-    
+    const fraudIndicators: string[] = [];
+
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const duplicateClaims = await this.repo.count({
+
+    const duplicateClaims = await this.prisma.claim.count({
       where: {
         policyId: claim.policyId,
         claimAmount: claim.claimAmount,
-        status: Not(ClaimStatus.REJECTED),
-        id: Not(claim.id),
-        createdAt: MoreThan(thirtyDaysAgo)
-      }
+        status: { not: ClaimStatus.REJECTED },
+        id: { not: claim.id },
+        createdAt: { gt: thirtyDaysAgo },
+      },
     });
-    
+
     if (duplicateClaims > 0) {
       fraudIndicators.push('DUPLICATE_CLAIM');
     }
-    
+
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    
-    const recentClaims = await this.repo.count({
+
+    const recentClaims = await this.prisma.claim.count({
       where: {
         policyId: claim.policyId,
-        createdAt: MoreThan(ninetyDaysAgo)
-      }
+        createdAt: { gt: ninetyDaysAgo },
+      },
     });
-    
+
     if (recentClaims >= 3) {
       fraudIndicators.push('HIGH_FREQUENCY');
     }
-    
+
     const claimDate = new Date(claim.createdAt);
     const hour = claimDate.getHours();
     const dayOfWeek = claimDate.getDay();
-    
+
     if (hour < 6 || hour > 22 || dayOfWeek === 0 || dayOfWeek === 6) {
       fraudIndicators.push('UNUSUAL_TIMING');
     }
-    
+
     if (fraudIndicators.length > 0) {
       this.logger.warn(`Fraud indicators detected for claim ${claim.id}: ${fraudIndicators.join(', ')}`);
     }
-    
+
     return fraudIndicators.length >= 2;
   }
 
   private async verifyOracle(claimId: string): Promise<boolean> {
     try {
-      const claim = await this.repo.findOne({ 
+      const claim = await this.prisma.claim.findUnique({
         where: { id: claimId },
-        relations: ['policy']
-      });
+        include: { policy: true },
+      }) as ClaimWithPolicy | null;
       if (!claim || !claim.policy) return false;
 
       const policy = claim.policy;
@@ -173,7 +176,7 @@ export class ClaimService {
 
       const claimAmount = Number(claim.claimAmount);
       const coverageAmount = Number(policy.coverageAmount);
-      
+
       if (claimAmount <= 0 || claimAmount > coverageAmount) {
         return false;
       }
@@ -185,7 +188,7 @@ export class ClaimService {
         undefined,
         undefined,
         undefined,
-        'Oracle verification successful'
+        'Oracle verification successful',
       );
 
       return true;
@@ -195,25 +198,29 @@ export class ClaimService {
     }
   }
 
-  async payClaim(claimId: string): Promise<Claim> {
-    const claim = await this.repo.findOne({ where: { id: claimId } });
+  async payClaim(claimId: string): Promise<ClaimWithPolicy> {
+    const claim = await this.prisma.claim.findUnique({ where: { id: claimId }, include: { policy: true } }) as ClaimWithPolicy | null;
     if (!claim) {
       throw new NotFoundException(`Claim with ID ${claimId} not found`);
     }
     const beforeState = { ...claim };
-    claim.status = ClaimStatus.PAID;
-    const updatedClaim = await this.repo.save(claim);
+    const updatedClaim = await this.prisma.claim.update({
+      where: { id: claimId },
+      data: { status: ClaimStatus.PAID },
+      include: { policy: true },
+    }) as ClaimWithPolicy;
     await this.auditService.logPayout('Claim', claimId, beforeState, updatedClaim);
     return updatedClaim;
   }
 
   async createClaim(policyId: string, claimAmount: number): Promise<Claim> {
-    const claim = this.repo.create({
-      policyId,
-      claimAmount: parseFloat(this.encryption.encrypt(claimAmount.toString())),
-      status: ClaimStatus.PENDING,
+    const savedClaim = await this.prisma.claim.create({
+      data: {
+        policyId,
+        claimAmount: parseFloat(this.encryption.encrypt(claimAmount.toString())),
+        status: ClaimStatus.PENDING,
+      },
     });
-    const savedClaim = await this.repo.save(claim);
     await this.auditService.logCreate('Claim', savedClaim.id, savedClaim);
     return savedClaim;
   }

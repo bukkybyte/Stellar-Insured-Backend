@@ -6,7 +6,7 @@ import {
   calcCommunityFeedbackScore,
   calculateReputationScore,
 } from './score.calculator';
-import { ReputationActivity } from '../reputation-activity.entity';
+import { ReputationActivity } from '../interfaces/reputation-activity.interface';
 import { ActivityType, MIN_ACTIVITY_THRESHOLD } from '../Reputation.constants';
 
 // ---------------------------------------------------------------------------

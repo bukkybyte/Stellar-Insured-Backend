@@ -1,22 +1,22 @@
 import { ReinsuranceService } from './reinsurance.service';
-import { ReinsuranceContract } from './entities/reinsurance-contract.entity';
 
 describe('ReinsuranceService', () => {
   let service: ReinsuranceService;
-  let repo: any;
+  let prisma: any;
   let auditService: any;
 
   beforeEach(() => {
-    repo = {
-      create: jest.fn(),
-      save: jest.fn(),
+    prisma = {
+      reinsuranceContract: {
+        create: jest.fn(),
+      },
     };
 
     auditService = {
       logCreate: jest.fn(),
     };
 
-    service = new ReinsuranceService(repo, auditService);
+    service = new ReinsuranceService(prisma, auditService);
     jest.clearAllMocks();
   });
 
@@ -29,17 +29,17 @@ describe('ReinsuranceService', () => {
       };
 
       const createdContract = { id: 'contract-1', ...contractData, createdAt: new Date() };
-      repo.create.mockReturnValue(createdContract);
-      repo.save.mockResolvedValue(createdContract);
+      prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
 
       const result = await service.createContract('pool-1', 50000, 0.02);
 
-      expect(repo.create).toHaveBeenCalledWith({
-        poolId: 'pool-1',
-        coverageLimit: 50000,
-        premiumRate: 0.02,
+      expect(prisma.reinsuranceContract.create).toHaveBeenCalledWith({
+        data: {
+          poolId: 'pool-1',
+          coverageLimit: 50000,
+          premiumRate: 0.02,
+        },
       });
-      expect(repo.save).toHaveBeenCalledWith(createdContract);
       expect(result).toEqual(createdContract);
     });
 
@@ -51,8 +51,7 @@ describe('ReinsuranceService', () => {
         premiumRate: 0.05,
         createdAt: new Date(),
       };
-      repo.create.mockReturnValue(createdContract);
-      repo.save.mockResolvedValue(createdContract);
+      prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
 
       await service.createContract('pool-1', 100000, 0.05);
 
@@ -63,17 +62,18 @@ describe('ReinsuranceService', () => {
       );
     });
 
-    it('should pass correct parameters to repo.create', async () => {
+    it('should pass correct parameters to prisma.reinsuranceContract.create', async () => {
       const createdContract = { id: 'c-2', poolId: 'p-2', coverageLimit: 25000, premiumRate: 0.03 };
-      repo.create.mockReturnValue(createdContract);
-      repo.save.mockResolvedValue(createdContract);
+      prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
 
       await service.createContract('p-2', 25000, 0.03);
 
-      expect(repo.create).toHaveBeenCalledWith({
-        poolId: 'p-2',
-        coverageLimit: 25000,
-        premiumRate: 0.03,
+      expect(prisma.reinsuranceContract.create).toHaveBeenCalledWith({
+        data: {
+          poolId: 'p-2',
+          coverageLimit: 25000,
+          premiumRate: 0.03,
+        },
       });
     });
   });

@@ -1,7 +1,1 @@
-export enum PolicyStatus {
-  ACTIVE = 'ACTIVE',
-  INACTIVE = 'INACTIVE',
-  EXPIRED = 'EXPIRED',
-  CANCELLED = 'CANCELLED',
-  PENDING = 'PENDING'
-}
+export { PolicyStatus } from '@prisma/client';

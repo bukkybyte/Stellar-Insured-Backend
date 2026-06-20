@@ -1,13 +1,12 @@
 import { PoolService } from './pool.service';
-import { InsurancePool } from './entities/insurance-pool.entity';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('PoolService', () => {
   let service: PoolService;
-  let repo: any;
+  let prisma: any;
   let auditService: any;
 
-  const mockPool: Partial<InsurancePool> = {
+  const mockPool = {
     id: 'pool-1',
     name: 'Test Pool',
     capital: 10000,
@@ -16,12 +15,10 @@ describe('PoolService', () => {
   };
 
   beforeEach(() => {
-    repo = {
-      findOne: jest.fn(),
-      save: jest.fn(),
-      manager: {
-        findOne: jest.fn(),
-        save: jest.fn(),
+    prisma = {
+      insurancePool: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
       },
     };
 
@@ -30,7 +27,7 @@ describe('PoolService', () => {
       logUpdate: jest.fn(),
     };
 
-    service = new PoolService(repo, auditService);
+    service = new PoolService(prisma, auditService);
     jest.clearAllMocks();
   });
 
@@ -41,29 +38,31 @@ describe('PoolService', () => {
     });
 
     it('should throw NotFoundException if pool is not found', async () => {
-      repo.findOne.mockResolvedValue(null);
+      prisma.insurancePool.findUnique.mockResolvedValue(null);
 
       await expect(service.addCapital('nonexistent', 500)).rejects.toThrow(NotFoundException);
-      expect(repo.findOne).toHaveBeenCalledWith({ where: { id: 'nonexistent' } });
+      expect(prisma.insurancePool.findUnique).toHaveBeenCalledWith({ where: { id: 'nonexistent' } });
     });
 
     it('should add capital to an existing pool', async () => {
       const pool = { ...mockPool };
-      repo.findOne.mockResolvedValue(pool);
-      repo.save.mockImplementation(async (p) => p);
+      const updatedPool = { ...pool, capital: 15000 };
+      prisma.insurancePool.findUnique.mockResolvedValue(pool);
+      prisma.insurancePool.update.mockResolvedValue(updatedPool);
 
       const result = await service.addCapital('pool-1', 5000);
 
-      expect(pool.capital).toBe(15000); // 10000 + 5000
-      expect(repo.save).toHaveBeenCalledWith(pool);
-      expect(result).toEqual(pool);
+      expect(prisma.insurancePool.update).toHaveBeenCalledWith({
+        where: { id: 'pool-1' },
+        data: { capital: { increment: 5000 } },
+      });
+      expect(result.capital).toBe(15000);
     });
 
     it('should call auditService.logAddCapital after adding capital', async () => {
       const pool = { ...mockPool };
-      const beforeState = { ...pool };
-      repo.findOne.mockResolvedValue(pool);
-      repo.save.mockImplementation(async (p) => p);
+      prisma.insurancePool.findUnique.mockResolvedValue(pool);
+      prisma.insurancePool.update.mockResolvedValue({ ...pool, capital: 15000 });
 
       await service.addCapital('pool-1', 5000);
 
@@ -82,39 +81,45 @@ describe('PoolService', () => {
       await expect(service.lockCapital('pool-1', -50)).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw NotFoundException if pool is not found (without queryRunner)', async () => {
-      repo.manager.findOne.mockResolvedValue(null);
+    it('should throw NotFoundException if pool is not found (without tx)', async () => {
+      prisma.insurancePool.findUnique.mockResolvedValue(null);
 
       await expect(service.lockCapital('nonexistent', 1000)).rejects.toThrow(NotFoundException);
     });
 
-    it('should lock capital without queryRunner using default manager', async () => {
+    it('should lock capital without tx using default prisma client', async () => {
       const pool = { ...mockPool };
-      repo.manager.findOne.mockResolvedValue(pool);
-      repo.manager.save.mockImplementation(async (p) => p);
+      const updatedPool = { ...pool, lockedCapital: 3000 };
+      prisma.insurancePool.findUnique.mockResolvedValue(pool);
+      prisma.insurancePool.update.mockResolvedValue(updatedPool);
 
       const result = await service.lockCapital('pool-1', 1000);
 
-      expect(pool.lockedCapital).toBe(3000); // 2000 + 1000
-      expect(repo.manager.save).toHaveBeenCalledWith(pool);
+      expect(prisma.insurancePool.update).toHaveBeenCalledWith({
+        where: { id: 'pool-1' },
+        data: { lockedCapital: { increment: 1000 } },
+      });
+      expect(result.lockedCapital).toBe(3000);
     });
 
-    it('should lock capital with queryRunner using its manager', async () => {
+    it('should lock capital using the provided transaction client', async () => {
       const pool = { ...mockPool };
-      const queryRunner = {
-        manager: {
-          findOne: jest.fn().mockResolvedValue(pool),
-          save: jest.fn().mockImplementation(async (p) => p),
+      const updatedPool = { ...pool, lockedCapital: 5000 };
+
+      const mockTx = {
+        insurancePool: {
+          findUnique: jest.fn().mockResolvedValue(pool),
+          update: jest.fn().mockResolvedValue(updatedPool),
         },
       } as any;
 
-      await service.lockCapital('pool-1', 3000, queryRunner);
+      await service.lockCapital('pool-1', 3000, mockTx);
 
-      expect(pool.lockedCapital).toBe(5000); // 2000 + 3000
-      expect(queryRunner.manager.findOne).toHaveBeenCalledWith(InsurancePool, {
+      expect(mockTx.insurancePool.findUnique).toHaveBeenCalledWith({ where: { id: 'pool-1' } });
+      expect(mockTx.insurancePool.update).toHaveBeenCalledWith({
         where: { id: 'pool-1' },
+        data: { lockedCapital: { increment: 3000 } },
       });
-      expect(queryRunner.manager.save).toHaveBeenCalledWith(pool);
     });
   });
 });

@@ -176,8 +176,11 @@ model InsurancePolicy {
   contractId     String?              @map("contract_id")
   contract       ReinsuranceContract? @relation(fields: [contractId], references: [id])
   riskType       RiskType
+  status         PolicyStatus         @default(ACTIVE)
   premium        Decimal              @db.Decimal(18, 2)
   coverageAmount Decimal              @map("coverage_amount") @db.Decimal(18, 2)
+  startDate      DateTime?            @map("start_date")
+  endDate        DateTime?            @map("end_date")
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
   deletedAt      DateTime?            @map("deleted_at")
@@ -187,6 +190,7 @@ model InsurancePolicy {
   @@index([poolId])
   @@index([contractId])
   @@index([riskType])
+  @@index([status])
   @@index([deletedAt])
   @@map("insurance_policies")
 }
@@ -198,6 +202,7 @@ model Claim {
   claimAmount  Decimal         @map("claim_amount") @db.Decimal(18, 2)
   status       ClaimStatus     @default(PENDING)
   payoutAmount Decimal?        @map("payout_amount") @db.Decimal(18, 2)
+  description  String?
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
   deletedAt    DateTime?       @map("deleted_at")
@@ -243,6 +248,7 @@ enum ClaimStatus {
   APPROVED
   REJECTED
   PAID
+  UNDER_REVIEW
 }
 
 enum AuditAction {
@@ -254,6 +260,16 @@ enum AuditAction {
   PAYOUT
   PURCHASE
   ADD_CAPITAL
+  FRAUD_DETECTED
+  ORACLE_VERIFIED
+}
+
+enum PolicyStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
 }
 
 enum ProjectStatus {
