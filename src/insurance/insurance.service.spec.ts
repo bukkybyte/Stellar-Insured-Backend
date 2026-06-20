@@ -9,33 +9,28 @@ describe('InsuranceService', () => {
   let pricing: PricingService;
   let pools: PoolService;
   let prisma: any;
-  let encryption: any;
   let auditService: any;
+
+  const buildMockTx = (createdPolicy: any = { id: 'policy-1' }) => ({
+    insurancePolicy: { create: jest.fn().mockResolvedValue(createdPolicy) },
+    insurancePool: { findUnique: jest.fn(), update: jest.fn() },
+  });
 
   beforeEach(() => {
     pricing = { calculatePremium: jest.fn() } as any;
     pools = { lockCapital: jest.fn() } as any;
 
-    const mockCreatedPolicy = { id: 'policy-1' };
-    const mockTx = {
-      insurancePolicy: { create: jest.fn().mockResolvedValue(mockCreatedPolicy) },
-      insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-    };
+    const mockTx = buildMockTx();
 
     prisma = {
       $transaction: jest.fn().mockImplementation(async (fn) => fn(mockTx)),
-      insurancePolicy: { create: jest.fn().mockResolvedValue(mockCreatedPolicy) },
-    };
-
-    encryption = {
-      encrypt: jest.fn((val: string) => `enc:${val}`),
     };
 
     auditService = {
       log: jest.fn(),
     };
 
-    service = new InsuranceService(pricing, pools, prisma, encryption, auditService);
+    service = new InsuranceService(pricing, pools, prisma, auditService);
     jest.clearAllMocks();
   });
 
@@ -61,20 +56,13 @@ describe('InsuranceService', () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(500);
       (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
 
-      const mockTx = {
-        insurancePolicy: {
-          create: jest.fn().mockResolvedValue({ id: 'policy-1', userId: 'user-1', poolId: 'pool-1' }),
-        },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
+      const mockTx = buildMockTx({ id: 'policy-1', userId: 'user-1', poolId: 'pool-1' });
       prisma.$transaction.mockImplementation(async (fn) => fn(mockTx));
 
       const result = await service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, 10000);
 
       expect(pricing.calculatePremium).toHaveBeenCalledWith(RiskType.PROJECT_FAILURE, 10000);
       expect(pools.lockCapital).toHaveBeenCalledWith('pool-1', 10000, mockTx);
-      expect(encryption.encrypt).toHaveBeenCalledWith('10000');
-      expect(encryption.encrypt).toHaveBeenCalledWith('500');
       expect(mockTx.insurancePolicy.create).toHaveBeenCalled();
       expect(result.id).toBe('policy-1');
     });
@@ -83,34 +71,62 @@ describe('InsuranceService', () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(500);
       (pools.lockCapital as jest.Mock).mockRejectedValue(new Error('Pool capital insufficient'));
 
-      prisma.$transaction.mockImplementation(async (fn) => {
-        const mockTx = {
-          insurancePolicy: { create: jest.fn() },
-          insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-        };
-        return fn(mockTx);
-      });
+      prisma.$transaction.mockImplementation(async (fn) => fn(buildMockTx()));
 
       await expect(
         service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, 10000),
       ).rejects.toThrow('Pool capital insufficient');
     });
 
-    it('should encrypt coverage amount and premium before saving', async () => {
-      (pricing.calculatePremium as jest.Mock).mockReturnValue(300);
-      (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
+    // Regression coverage for issue #399: coverageAmount/premium were previously
+    // run through EncryptionService.encrypt() and then force-cast back to a
+    // number via parseFloat(), which produced NaN/garbage instead of a valid
+    // decimal. These tests assert the values written to the DB are the exact,
+    // uncorrupted plain decimals expected by the numeric(18,2) columns.
+    describe('valid DB payload (issue #399 regression)', () => {
+      it('writes plain, unencrypted decimal values for coverageAmount and premium', async () => {
+        (pricing.calculatePremium as jest.Mock).mockReturnValue(500);
+        (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
 
-      const mockTx = {
-        insurancePolicy: { create: jest.fn().mockResolvedValue({ id: 'p' }) },
-        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
-      };
-      prisma.$transaction.mockImplementation(async (fn) => fn(mockTx));
+        const mockTx = buildMockTx({ id: 'policy-1' });
+        prisma.$transaction.mockImplementation(async (fn) => fn(mockTx));
 
-      await service.purchasePolicy('user-1', 'pool-1', RiskType.MARKET_VOLATILITY, 10000);
+        await service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, 10000);
 
-      expect(encryption.encrypt).toHaveBeenCalledTimes(2);
-      expect(encryption.encrypt).toHaveBeenCalledWith('10000');
-      expect(encryption.encrypt).toHaveBeenCalledWith('300');
+        expect(mockTx.insurancePolicy.create).toHaveBeenCalledWith({
+          data: {
+            userId: 'user-1',
+            poolId: 'pool-1',
+            riskType: RiskType.PROJECT_FAILURE,
+            coverageAmount: 10000,
+            premium: 500,
+          },
+        });
+      });
+
+      it('never produces NaN or non-finite values for coverageAmount/premium', async () => {
+        (pricing.calculatePremium as jest.Mock).mockReturnValue(123.45);
+        (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
+
+        const mockTx = buildMockTx({ id: 'policy-1' });
+        prisma.$transaction.mockImplementation(async (fn) => fn(mockTx));
+
+        await service.purchasePolicy('user-1', 'pool-1', RiskType.SMART_CONTRACT_EXPLOIT, 9999.99);
+
+        const writtenData = mockTx.insurancePolicy.create.mock.calls[0][0].data;
+        expect(Number.isFinite(writtenData.coverageAmount)).toBe(true);
+        expect(Number.isFinite(writtenData.premium)).toBe(true);
+        expect(writtenData.coverageAmount).toBe(9999.99);
+        expect(writtenData.premium).toBe(123.45);
+      });
+
+      it('does not depend on EncryptionService for numeric fields', () => {
+        // InsuranceService no longer takes an EncryptionService dependency at
+        // all: financial decimal fields are not encrypted at rest, since
+        // claim assessment, fraud detection, and pool capital locking all
+        // require direct numeric comparison/aggregation on these columns.
+        expect(service['encryption']).toBeUndefined();
+      });
     });
   });
 });

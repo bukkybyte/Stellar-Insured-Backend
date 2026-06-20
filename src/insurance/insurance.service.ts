@@ -3,7 +3,6 @@ import { PricingService } from './pricing.service';
 import { PoolService } from './pool.service';
 import { RiskType } from './enums/risk-type.enum';
 import { PrismaService } from '../prisma.service';
-import { EncryptionService } from '../encryption/encryption.service';
 import { AuditService } from './services/audit.service';
 
 @Injectable()
@@ -14,7 +13,6 @@ export class InsuranceService {
     private readonly pricing: PricingService,
     private readonly pools: PoolService,
     private readonly prisma: PrismaService,
-    private readonly encryption: EncryptionService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -32,13 +30,23 @@ export class InsuranceService {
 
         await this.pools.lockCapital(poolId, coverageAmount, tx);
 
+        // coverageAmount/premium are stored as plain numeric(18,2) columns (see
+        // prisma/schema.prisma). They are NOT encrypted at rest: claim assessment,
+        // fraud detection, pool capital locking, and reporting all perform direct
+        // arithmetic/equality comparisons and DB-level aggregation on these values
+        // (see claim.service.ts, pool.service.ts). Encrypting them here previously
+        // produced ciphertext that was force-cast to a number via parseFloat(),
+        // silently corrupting every policy's coverage/premium into NaN/garbage.
+        // Sensitive-field encryption (e.g. user email) is applied at the
+        // service layer for those specific PII fields only — see
+        // EncryptionService and user.service.ts.
         return tx.insurancePolicy.create({
           data: {
             userId,
             poolId,
             riskType,
-            coverageAmount: parseFloat(this.encryption.encrypt(coverageAmount.toString())),
-            premium: parseFloat(this.encryption.encrypt(premium.toString())),
+            coverageAmount,
+            premium,
           },
         });
       });

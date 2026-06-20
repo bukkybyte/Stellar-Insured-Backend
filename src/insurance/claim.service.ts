@@ -3,7 +3,6 @@ import { ClaimStatus } from './enums/claim-status.enum';
 import { PolicyStatus } from './enums/policy-status.enum';
 import { AuditAction } from './enums/audit-action.enum';
 import { PrismaService } from '../prisma.service';
-import { EncryptionService } from '../encryption/encryption.service';
 import { AuditService } from './services/audit.service';
 import { Claim, InsurancePolicy } from '@prisma/client';
 
@@ -15,7 +14,6 @@ export class ClaimService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly encryption: EncryptionService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -38,13 +36,13 @@ export class ClaimService {
 
     // 1. Verify policy is active
     if (policy.status !== PolicyStatus.ACTIVE) {
-      await this.updateStatus(claim, ClaimStatus.REJECTED, `Policy is not active: ${policy.status}`);
+      await this.updateStatus(claimId, ClaimStatus.REJECTED, `Policy is not active: ${policy.status}`);
       throw new BadRequestException('Cannot approve claim for inactive policy');
     }
 
     // 2. Check coverage limits
     if (Number(claim.claimAmount) > Number(policy.coverageAmount)) {
-      await this.updateStatus(claim, ClaimStatus.REJECTED, 'Claim amount exceeds coverage');
+      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Claim amount exceeds coverage');
       throw new BadRequestException('Claim amount exceeds policy coverage amount');
     }
 
@@ -66,7 +64,7 @@ export class ClaimService {
     // 4. Oracle Verification
     const oracleVerified = await this.verifyOracle(claimId);
     if (!oracleVerified) {
-      await this.updateStatus(claim, ClaimStatus.REJECTED, 'Oracle verification failed');
+      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Oracle verification failed');
       throw new BadRequestException('Oracle verification failed');
     }
 
@@ -86,7 +84,7 @@ export class ClaimService {
     claimId: string,
     status: ClaimStatus,
     reason: string,
-    _user: string,
+    _user: string = 'system',
     additionalData: { payoutAmount?: any } = {},
   ): Promise<ClaimWithPolicy> {
     const existing = await this.prisma.claim.findUnique({ where: { id: claimId }, include: { policy: true } }) as ClaimWithPolicy | null;
@@ -103,9 +101,9 @@ export class ClaimService {
     }) as ClaimWithPolicy;
 
     if (status === ClaimStatus.REJECTED) {
-      await this.auditService.logReject('Claim', claim.id, beforeState, updated, reason);
+      await this.auditService.logReject('Claim', claimId, beforeState, updated, reason);
     } else if (status === ClaimStatus.APPROVED) {
-      await this.auditService.logApprove('Claim', claim.id, beforeState, updated, undefined, reason);
+      await this.auditService.logApprove('Claim', claimId, beforeState, updated, undefined, reason);
     }
 
     return updated;
@@ -214,10 +212,16 @@ export class ClaimService {
   }
 
   async createClaim(policyId: string, claimAmount: number): Promise<Claim> {
+    // claimAmount is a plain numeric(18,2) column (see prisma/schema.prisma).
+    // It is NOT encrypted at rest: assessClaim()/runFraudDetection() compare
+    // it directly against policy.coverageAmount and run DB-level equality
+    // queries on it. Encrypting it here previously produced ciphertext that
+    // was force-cast to a number via parseFloat(), corrupting the value
+    // (issue #399, same root cause as InsuranceService.purchasePolicy()).
     const savedClaim = await this.prisma.claim.create({
       data: {
         policyId,
-        claimAmount: parseFloat(this.encryption.encrypt(claimAmount.toString())),
+        claimAmount,
         status: ClaimStatus.PENDING,
       },
     });
