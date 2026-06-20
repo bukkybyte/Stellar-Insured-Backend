@@ -130,9 +130,9 @@
   },
   "jest": {
     "moduleFileExtensions": [
+      "ts",
       "js",
-      "json",
-      "ts"
+      "json"
     ],
     "roots": [
       "src"
