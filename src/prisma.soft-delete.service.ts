@@ -4,6 +4,13 @@ import type { SoftDeleteModel } from './prisma.soft-delete.middleware';
 
 type SoftDeleteDelegateName = Uncapitalize<SoftDeleteModel>;
 
+/** Generic Prisma query options shape used by soft-delete helpers. */
+interface QueryOptions {
+  where?: Record<string, unknown>;
+  includeDeleted?: boolean;
+  [key: string]: unknown;
+}
+
 /**
  * Service providing utility methods for soft delete operations
  * Use this service when you need to:
@@ -29,14 +36,14 @@ export class SoftDeleteService {
    */
   async hardDelete<T>(
     model: SoftDeleteDelegateName,
-    where: any,
+    where: Record<string, unknown>,
     reason?: string,
   ): Promise<T | null> {
     this.logger.warn(
       `Hard deleting ${model as string} with where: ${JSON.stringify(where)}. Reason: ${reason || 'Not provided'}`,
     );
 
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.delete({ where });
   }
 
@@ -50,14 +57,14 @@ export class SoftDeleteService {
    */
   async hardDeleteMany<T>(
     model: SoftDeleteDelegateName,
-    where: any,
+    where: Record<string, unknown>,
     reason?: string,
   ): Promise<{ count: number }> {
     this.logger.warn(
       `Hard deleting ${model as string} records. Reason: ${reason || 'Not provided'}`,
     );
 
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.deleteMany({ where });
   }
 
@@ -68,10 +75,10 @@ export class SoftDeleteService {
    * @param where - Filter conditions
    * @returns The restored record
    */
-  async restore<T>(model: SoftDeleteDelegateName, where: any): Promise<T> {
+  async restore<T>(model: SoftDeleteDelegateName, where: Record<string, unknown>): Promise<T> {
     this.logger.log(`Restoring ${model as string} record`);
 
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.update({
       where,
       data: { deletedAt: null },
@@ -85,10 +92,10 @@ export class SoftDeleteService {
    * @param where - Filter conditions
    * @returns Count of restored records
    */
-  async restoreMany<T>(model: SoftDeleteDelegateName, where: any): Promise<{ count: number }> {
+  async restoreMany<T>(model: SoftDeleteDelegateName, where: Record<string, unknown>): Promise<{ count: number }> {
     this.logger.log(`Restoring multiple ${model as string} records`);
 
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.updateMany({
       where,
       data: { deletedAt: null },
@@ -104,9 +111,9 @@ export class SoftDeleteService {
    */
   async findIncludingDeleted<T>(
     model: SoftDeleteDelegateName,
-    where: any,
+    where: Record<string, unknown>,
   ): Promise<T | null> {
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.findUnique({
       where,
       ...{ includeDeleted: true },
@@ -122,9 +129,9 @@ export class SoftDeleteService {
    */
   async findManyIncludingDeleted<T>(
     model: SoftDeleteDelegateName,
-    options: any = {},
+    options: QueryOptions = {},
   ): Promise<T[]> {
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.findMany({
       ...options,
       where: {
@@ -143,9 +150,9 @@ export class SoftDeleteService {
    */
   async findManyDeleted<T>(
     model: SoftDeleteDelegateName,
-    options: any = {},
+    options: QueryOptions = {},
   ): Promise<T[]> {
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.findMany({
       ...options,
       where: {
@@ -162,8 +169,8 @@ export class SoftDeleteService {
    * @param where - Filter conditions
    * @returns Count of deleted records
    */
-  async countDeleted(model: SoftDeleteDelegateName, where: any = {}): Promise<number> {
-    const prismaModel = this.prisma[model];
+  async countDeleted(model: SoftDeleteDelegateName, where: Record<string, unknown> = {}): Promise<number> {
+    const prismaModel = this.prisma[model] as any;
     return prismaModel.count({
       where: {
         ...where,
@@ -188,7 +195,7 @@ export class SoftDeleteService {
       `Permanently deleting ${model as string} records deleted before ${deletedBefore.toISOString()}`,
     );
 
-    const prismaModel = this.prisma[model];
+    const prismaModel = this.prisma[model] as any;
     const result = await prismaModel.deleteMany({
       where: {
         deletedAt: {
@@ -208,8 +215,8 @@ export class SoftDeleteService {
    * @param where - Filter conditions
    * @returns True if record exists and is deleted, false otherwise
    */
-  async isDeleted(model: SoftDeleteDelegateName, where: any): Promise<boolean> {
-    const prismaModel = this.prisma[model];
+  async isDeleted(model: SoftDeleteDelegateName, where: Record<string, unknown>): Promise<boolean> {
+    const prismaModel = this.prisma[model] as any;
     const record = await prismaModel.findUnique({
       where,
       ...{ includeDeleted: true },

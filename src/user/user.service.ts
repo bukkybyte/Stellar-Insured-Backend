@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { EncryptionService } from '../encryption/encryption.service';
 import { sanitizeString, sanitizeObject, isValidCuid, isValidWalletAddress } from '../common/utils/sanitization.util';
+import { User } from '@prisma/client';
 
 @Injectable()
 export class UserService {
@@ -155,7 +156,7 @@ export class UserService {
   /**
    * Decrypt sensitive fields in user object
    */
-  private decryptUser(user: any) {
+  private decryptUser(user: User) {
     const decrypted = { ...user };
     
     if (decrypted.walletAddress) {
