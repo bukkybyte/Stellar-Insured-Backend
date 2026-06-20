@@ -1,4 +1,4 @@
-import { ReputationActivity } from '../reputation-activity.entity';
+import { ReputationActivity } from '../interfaces/reputation-activity.interface';
 import {
   ActivityType,
   FACTOR_WEIGHTS,

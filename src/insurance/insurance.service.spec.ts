@@ -1,7 +1,6 @@
 import { InsuranceService } from './insurance.service';
 import { PricingService } from './pricing.service';
 import { PoolService } from './pool.service';
-import { InsurancePolicy } from './entities/insurance-policy.entity';
 import { RiskType } from './enums/risk-type.enum';
 import { BadRequestException } from '@nestjs/common';
 
@@ -9,33 +8,23 @@ describe('InsuranceService', () => {
   let service: InsuranceService;
   let pricing: PricingService;
   let pools: PoolService;
-  let repo: any;
+  let prisma: any;
   let encryption: any;
   let auditService: any;
-  let queryRunner: any;
 
   beforeEach(() => {
     pricing = { calculatePremium: jest.fn() } as any;
     pools = { lockCapital: jest.fn() } as any;
 
-    queryRunner = {
-      connect: jest.fn(),
-      startTransaction: jest.fn(),
-      commitTransaction: jest.fn(),
-      rollbackTransaction: jest.fn(),
-      release: jest.fn(),
-      manager: {
-        save: jest.fn(),
-      },
+    const mockCreatedPolicy = { id: 'policy-1' };
+    const mockTx = {
+      insurancePolicy: { create: jest.fn().mockResolvedValue(mockCreatedPolicy) },
+      insurancePool: { findUnique: jest.fn(), update: jest.fn() },
     };
 
-    repo = {
-      create: jest.fn(),
-      manager: {
-        connection: {
-          createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-        },
-      },
+    prisma = {
+      $transaction: jest.fn().mockImplementation(async (fn) => fn(mockTx)),
+      insurancePolicy: { create: jest.fn().mockResolvedValue(mockCreatedPolicy) },
     };
 
     encryption = {
@@ -46,7 +35,7 @@ describe('InsuranceService', () => {
       log: jest.fn(),
     };
 
-    service = new InsuranceService(pricing, pools, repo, encryption, auditService);
+    service = new InsuranceService(pricing, pools, prisma, encryption, auditService);
     jest.clearAllMocks();
   });
 
@@ -72,58 +61,50 @@ describe('InsuranceService', () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(500);
       (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
 
-      const policyData = {
-        userId: 'user-1',
-        poolId: 'pool-1',
-        riskType: RiskType.PROJECT_FAILURE,
-        coverageAmount: expect.any(Number),
-        premium: expect.any(Number),
+      const mockTx = {
+        insurancePolicy: {
+          create: jest.fn().mockResolvedValue({ id: 'policy-1', userId: 'user-1', poolId: 'pool-1' }),
+        },
+        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
       };
-
-      repo.create.mockReturnValue({ id: 'policy-1', ...policyData });
-      queryRunner.manager.save.mockResolvedValue({ id: 'policy-1', ...policyData });
+      prisma.$transaction.mockImplementation(async (fn) => fn(mockTx));
 
       const result = await service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, 10000);
 
       expect(pricing.calculatePremium).toHaveBeenCalledWith(RiskType.PROJECT_FAILURE, 10000);
-      expect(pools.lockCapital).toHaveBeenCalledWith('pool-1', 10000, queryRunner);
-      expect(encryption.encrypt).toHaveBeenCalledWith('10000'); // coverageAmount
-      expect(encryption.encrypt).toHaveBeenCalledWith('500'); // premium
-      expect(repo.create).toHaveBeenCalled();
-      expect(queryRunner.commitTransaction).toHaveBeenCalled();
-      expect(queryRunner.release).toHaveBeenCalled();
+      expect(pools.lockCapital).toHaveBeenCalledWith('pool-1', 10000, mockTx);
+      expect(encryption.encrypt).toHaveBeenCalledWith('10000');
+      expect(encryption.encrypt).toHaveBeenCalledWith('500');
+      expect(mockTx.insurancePolicy.create).toHaveBeenCalled();
+      expect(result.id).toBe('policy-1');
     });
 
     it('should rollback transaction on error', async () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(500);
       (pools.lockCapital as jest.Mock).mockRejectedValue(new Error('Pool capital insufficient'));
 
+      prisma.$transaction.mockImplementation(async (fn) => {
+        const mockTx = {
+          insurancePolicy: { create: jest.fn() },
+          insurancePool: { findUnique: jest.fn(), update: jest.fn() },
+        };
+        return fn(mockTx);
+      });
+
       await expect(
         service.purchasePolicy('user-1', 'pool-1', RiskType.PROJECT_FAILURE, 10000),
       ).rejects.toThrow('Pool capital insufficient');
-
-      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
-      expect(queryRunner.release).toHaveBeenCalled();
-    });
-
-    it('should always release queryRunner in finally block', async () => {
-      (pricing.calculatePremium as jest.Mock).mockReturnValue(500);
-      (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
-      queryRunner.manager.save.mockRejectedValue(new Error('DB error'));
-
-      await expect(
-        service.purchasePolicy('user-1', 'pool-1', RiskType.MARKET_VOLATILITY, 5000),
-      ).rejects.toThrow();
-
-      expect(queryRunner.release).toHaveBeenCalled();
     });
 
     it('should encrypt coverage amount and premium before saving', async () => {
       (pricing.calculatePremium as jest.Mock).mockReturnValue(300);
       (pools.lockCapital as jest.Mock).mockResolvedValue(undefined);
 
-      repo.create.mockImplementation((data) => data);
-      queryRunner.manager.save.mockImplementation(async (p) => ({ id: 'new-policy', ...p }));
+      const mockTx = {
+        insurancePolicy: { create: jest.fn().mockResolvedValue({ id: 'p' }) },
+        insurancePool: { findUnique: jest.fn(), update: jest.fn() },
+      };
+      prisma.$transaction.mockImplementation(async (fn) => fn(mockTx));
 
       await service.purchasePolicy('user-1', 'pool-1', RiskType.MARKET_VOLATILITY, 10000);
 

@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import { AuditAction } from '../entities/audit-log.entity';
+import { AuditAction } from '../enums/audit-action.enum';
 
 export interface AuditMetadata {
   entityType: string;

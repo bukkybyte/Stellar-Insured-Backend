@@ -1,10 +1,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PricingService } from './pricing.service';
 import { PoolService } from './pool.service';
-import { InsurancePolicy } from './entities/insurance-policy.entity';
-import { Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
 import { RiskType } from './enums/risk-type.enum';
+import { PrismaService } from '../prisma.service';
 import { EncryptionService } from '../encryption/encryption.service';
 import { AuditService } from './services/audit.service';
 
@@ -15,7 +13,7 @@ export class InsuranceService {
   constructor(
     private readonly pricing: PricingService,
     private readonly pools: PoolService,
-    @InjectRepository(InsurancePolicy) private readonly repo: Repository<InsurancePolicy>,
+    private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
     private readonly auditService: AuditService,
   ) {}
@@ -28,33 +26,25 @@ export class InsuranceService {
       throw new BadRequestException('Coverage amount must be positive');
     }
 
-    const queryRunner = this.repo.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
     try {
-      const premium = this.pricing.calculatePremium(riskType, coverageAmount);
+      return await this.prisma.$transaction(async (tx) => {
+        const premium = this.pricing.calculatePremium(riskType, coverageAmount);
 
-      await this.pools.lockCapital(poolId, coverageAmount, queryRunner);
+        await this.pools.lockCapital(poolId, coverageAmount, tx);
 
-      // Encrypt sensitive financial data before saving
-      const policy = this.repo.create({
-        userId,
-        poolId,
-        riskType,
-        coverageAmount: parseFloat(this.encryption.encrypt(coverageAmount.toString())),
-        premium: parseFloat(this.encryption.encrypt(premium.toString())),
+        return tx.insurancePolicy.create({
+          data: {
+            userId,
+            poolId,
+            riskType,
+            coverageAmount: parseFloat(this.encryption.encrypt(coverageAmount.toString())),
+            premium: parseFloat(this.encryption.encrypt(premium.toString())),
+          },
+        });
       });
-
-      const savedPolicy = await queryRunner.manager.save(policy);
-      await queryRunner.commitTransaction();
-      return savedPolicy;
     } catch (error) {
-      await queryRunner.rollbackTransaction();
       this.logger.error(`Purchase policy failed for user ${userId}, pool ${poolId}: ${error.message}`);
       throw error;
-    } finally {
-      await queryRunner.release();
     }
   }
 }

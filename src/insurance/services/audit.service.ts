@@ -1,20 +1,17 @@
 import { Injectable, Inject, Scope } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import { Request } from 'express';
-import { Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
-import { AuditLog, AuditAction } from '../entities/audit-log.entity';
+import { AuditAction } from '../enums/audit-action.enum';
+import { PrismaService } from '../../prisma.service';
 
 @Injectable({ scope: Scope.REQUEST })
 export class AuditService {
   constructor(
-    @InjectRepository(AuditLog)
-    private auditLogRepository: Repository<AuditLog>,
+    private readonly prisma: PrismaService,
     @Inject(REQUEST) private request: Request,
   ) {}
 
   private getUserId(): string | undefined {
-    // Assuming user is attached to request by auth guard
     return (this.request as any).user?.id;
   }
 
@@ -35,21 +32,21 @@ export class AuditService {
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    const auditLog = this.auditLogRepository.create({
-      userId: this.getUserId(),
-      action,
-      entityType,
-      entityId,
-      beforeState,
-      afterState,
-      ipAddress: this.getIpAddress(),
-      userAgent: this.getUserAgent(),
-      transactionHash,
-      reason,
-      timestamp: new Date(),
+    await this.prisma.auditLog.create({
+      data: {
+        userId: this.getUserId(),
+        action,
+        entityType,
+        entityId,
+        beforeState: beforeState ?? undefined,
+        afterState: afterState ?? undefined,
+        ipAddress: this.getIpAddress(),
+        userAgent: this.getUserAgent(),
+        transactionHash,
+        reason,
+        timestamp: new Date(),
+      },
     });
-
-    await this.auditLogRepository.save(auditLog);
   }
 
   async logCreate(
