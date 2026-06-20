@@ -1,11 +1,12 @@
 /**
  * Example: Using Soft Delete in Your Services
- * 
+ *
  * This file demonstrates common patterns for using soft delete functionality
  * in your NestJS services. Copy and adapt these patterns for your own services.
  */
 
 import { Injectable } from '@nestjs/common';
+import { Prisma, User } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { SoftDeleteService } from './prisma.soft-delete.service';
 
@@ -32,7 +33,7 @@ export class ExampleUserService {
   }
 
   // Update
-  async updateUser(id: string, data: any) {
+  async updateUser(id: string, data: Prisma.UserUpdateInput) {
     return this.prisma.user.update({ where: { id }, data });
   }
 
@@ -82,7 +83,9 @@ export class ExampleAdvancedUserService {
   // Permanently delete (only after retention period)
   async permanentlyDeleteExpiredUsers() {
     const retentionDays = 90;
-    const expirationDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+    const expirationDate = new Date(
+      Date.now() - retentionDays * 24 * 60 * 60 * 1000,
+    );
     return this.softDelete.permanentlyDeleteExpired('user', expirationDate);
   }
 
@@ -234,7 +237,7 @@ export class ExampleQueryPatternsService {
   }
 
   // Pattern 4: Conditional operations
-  async updateUserIfNotDeleted(userId: string, data: any) {
+  async updateUserIfNotDeleted(userId: string, data: Prisma.UserUpdateInput) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
@@ -273,8 +276,10 @@ describe('Soft Delete Examples', () => {
     const user = await service.createUser({ walletAddress: 'test' });
     await service.deleteUser(user.id);
 
-    const restored = await softDeleteService.restore('user', { id: user.id });
-    expect((restored as any).deletedAt).toBeNull();
+    const restored = await softDeleteService.restore<User>('user', {
+      id: user.id,
+    });
+    expect(restored.deletedAt).toBeNull();
 
     const found = await service.getUser(user.id);
     expect(found).toBeDefined();
@@ -284,9 +289,11 @@ describe('Soft Delete Examples', () => {
     const user = await service.createUser({ walletAddress: 'test' });
     await service.deleteUser(user.id);
 
-    const found = await softDeleteService.findIncludingDeleted('user', { id: user.id });
+    const found = await softDeleteService.findIncludingDeleted<User>('user', {
+      id: user.id,
+    });
     expect(found).toBeDefined();
-    expect((found as any).deletedAt).not.toBeNull();
+    expect(found?.deletedAt).not.toBeNull();
   });
 
   it('should count only active users', async () => {
@@ -318,7 +325,9 @@ describe('Soft Delete Examples', () => {
 
     expect(deletedCount).toBeGreaterThan(0);
 
-    const stillThere = await softDeleteService.findIncludingDeleted('user', { id: user.id });
+    const stillThere = await softDeleteService.findIncludingDeleted('user', {
+      id: user.id,
+    });
     expect(stillThere).toBeNull();
   });
 });

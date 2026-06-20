@@ -5,6 +5,7 @@ import { RiskType } from './enums/risk-type.enum';
 import { PrismaService } from '../prisma.service';
 import { EncryptionService } from '../encryption/encryption.service';
 import { AuditService } from './services/audit.service';
+import { InsurancePolicy } from '@prisma/client';
 
 @Injectable()
 export class InsuranceService {
@@ -18,7 +19,12 @@ export class InsuranceService {
     private readonly auditService: AuditService,
   ) {}
 
-  async purchasePolicy(userId: string, poolId: string, riskType: RiskType, coverageAmount: number) {
+  async purchasePolicy(
+    userId: string,
+    poolId: string,
+    riskType: RiskType,
+    coverageAmount: number,
+  ): Promise<InsurancePolicy> {
     if (!userId || !poolId) {
       throw new BadRequestException('userId and poolId are required');
     }
@@ -27,7 +33,7 @@ export class InsuranceService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.prisma.$transaction(async tx => {
         const premium = this.pricing.calculatePremium(riskType, coverageAmount);
 
         await this.pools.lockCapital(poolId, coverageAmount, tx);
@@ -37,13 +43,18 @@ export class InsuranceService {
             userId,
             poolId,
             riskType,
-            coverageAmount: parseFloat(this.encryption.encrypt(coverageAmount.toString())),
+            coverageAmount: parseFloat(
+              this.encryption.encrypt(coverageAmount.toString()),
+            ),
             premium: parseFloat(this.encryption.encrypt(premium.toString())),
           },
         });
       });
-    } catch (error) {
-      this.logger.error(`Purchase policy failed for user ${userId}, pool ${poolId}: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Purchase policy failed for user ${userId}, pool ${poolId}: ${message}`,
+      );
       throw error;
     }
   }

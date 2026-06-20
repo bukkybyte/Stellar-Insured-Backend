@@ -1,5 +1,11 @@
-import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { UserService } from './user.service';
+import { PrismaService } from '../prisma.service';
+import { EncryptionService } from '../encryption/encryption.service';
 
 const prisma = {
   user: {
@@ -10,30 +16,39 @@ const prisma = {
     create: jest.fn(),
     update: jest.fn(),
   },
-} as any;
+};
 
 const encryption = {
   encrypt: jest.fn((value: string) => `encrypted:${value}`),
   decrypt: jest.fn((value: string) => value.replace('encrypted:', '')),
-} as any;
+};
 
 describe('UserService', () => {
   let service: UserService;
 
   beforeEach(() => {
-    service = new UserService(prisma, encryption);
+    service = new UserService(
+      prisma as unknown as PrismaService,
+      encryption as unknown as EncryptionService,
+    );
     jest.clearAllMocks();
   });
 
   it('rejects invalid user ID format in findById', async () => {
-    await expect(service.findById('<script>alert(1)</script>')).rejects.toThrow(BadRequestException);
-    await expect(service.findById('DROP TABLE users;')).rejects.toThrow(BadRequestException);
+    await expect(service.findById('<script>alert(1)</script>')).rejects.toThrow(
+      BadRequestException,
+    );
+    await expect(service.findById('DROP TABLE users;')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('filters soft-deleted users from id lookups', async () => {
     prisma.user.findFirst.mockResolvedValue(null);
 
-    await expect(service.findById('clabcdefghij')).rejects.toThrow(NotFoundException);
+    await expect(service.findById('clabcdefghij')).rejects.toThrow(
+      NotFoundException,
+    );
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
       where: {
         id: 'clabcdefghij',
@@ -43,14 +58,20 @@ describe('UserService', () => {
   });
 
   it('rejects invalid wallet address format in findByWallet', async () => {
-    await expect(service.findByWallet('<script>evil()</script>')).rejects.toThrow(BadRequestException);
-    await expect(service.findByWallet("'; DROP TABLE users;--")).rejects.toThrow(BadRequestException);
+    await expect(
+      service.findByWallet('<script>evil()</script>'),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.findByWallet("'; DROP TABLE users;--"),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('filters soft-deleted users from wallet lookups', async () => {
     prisma.user.findFirst.mockResolvedValue(null);
 
-    await expect(service.findByWallet('GABC123')).rejects.toThrow(NotFoundException);
+    await expect(service.findByWallet('GABC123')).rejects.toThrow(
+      NotFoundException,
+    );
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
       where: {
         walletAddress: 'GABC123',
@@ -115,12 +136,58 @@ describe('UserService', () => {
   });
 
   it('rejects invalid wallet address format in create', async () => {
-    await expect(service.create('<script>evil()</script>')).rejects.toThrow(BadRequestException);
+    await expect(service.create('<script>evil()</script>')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('prevents duplicate active wallet addresses during create', async () => {
     prisma.user.findUnique.mockResolvedValue({ id: 'user-1' });
 
     await expect(service.create('GABC123')).rejects.toThrow(ConflictException);
+  });
+
+  it('sanitizes update payloads into explicit Prisma user update data', async () => {
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'clabcdefghij',
+      walletAddress: 'GABC123',
+      email: null,
+      pushSubscription: null,
+      profileData: null,
+      reputationScore: 0,
+      trustScore: 500,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    });
+    prisma.user.update.mockResolvedValue({
+      id: 'clabcdefghij',
+      walletAddress: 'GABC123',
+      email: 'encrypted:person@example.com',
+      pushSubscription: 'encrypted:subscription',
+      profileData: { displayName: 'Ada' },
+      reputationScore: 0,
+      trustScore: 500,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    });
+
+    await service.update('clabcdefghij', {
+      email: ' person@example.com ',
+      profileData: {
+        displayName: '<b>Ada</b>',
+      },
+      pushSubscription: ' subscription ',
+    });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'clabcdefghij' },
+      data: {
+        email: 'encrypted:person@example.com',
+        profileData: { displayName: 'Ada' },
+        pushSubscription: 'encrypted:subscription',
+      },
+    });
   });
 });

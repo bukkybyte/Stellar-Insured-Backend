@@ -1,4 +1,6 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import * as webpush from 'web-push';
 import { PrismaService } from '../../prisma.service';
 import { EmailService } from './email.service';
 import { WebPushService } from './web-push.service';
@@ -20,7 +22,7 @@ export class NotificationService {
     type: NotificationType,
     title: string,
     message: string,
-    data?: any,
+    data?: Prisma.InputJsonValue,
   ): Promise<void> {
     // Validate notification type at runtime
     validateEnum(NotificationType, type, 'NotificationType');
@@ -66,23 +68,56 @@ export class NotificationService {
     // Dispatch via Email
     if (settings.emailEnabled && user.email) {
       try {
-        await this.emailService.sendEmail(user.email, title, `<p>${message}</p>`);
-      } catch (err) {
-        this.logger.error(`Failed to send email to ${user.email} for notification ${title}`);
+        await this.emailService.sendEmail(
+          user.email,
+          title,
+          `<p>${message}</p>`,
+        );
+      } catch {
+        this.logger.error(
+          `Failed to send email to ${user.email} for notification ${title}`,
+        );
       }
     }
 
     // Dispatch via Web Push
-    if (settings.pushEnabled && user.pushSubscription) {
+    const pushSubscription = this.getPushSubscription(user.pushSubscription);
+    if (settings.pushEnabled && pushSubscription) {
       try {
-        await this.webPushService.sendNotification(user.pushSubscription as any, {
+        await this.webPushService.sendNotification(pushSubscription, {
           title,
           body: message,
           data,
         });
-      } catch (err) {
+      } catch {
         this.logger.error(`Failed to send web push for user ${userId}`);
       }
     }
+  }
+
+  private getPushSubscription(
+    value: Prisma.JsonValue | null,
+  ): webpush.PushSubscription | null {
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        return this.isPushSubscription(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+
+    return this.isPushSubscription(value) ? value : null;
+  }
+
+  private isPushSubscription(
+    value: unknown,
+  ): value is webpush.PushSubscription {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+
+    const candidate = value as Partial<webpush.PushSubscription>;
+    return typeof candidate.endpoint === 'string' && Boolean(candidate.keys);
   }
 }

@@ -15,6 +15,19 @@ import {
   ValidationFieldError,
 } from '../dto/error-response.dto';
 
+type ErrorDetails = ValidationFieldError[] | Record<string, unknown> | null;
+
+interface ExtractedErrorInfo {
+  status: number;
+  code: string;
+  message: string;
+  details?: ErrorDetails;
+}
+
+interface HttpExceptionResponseBody {
+  message?: string | string[];
+}
+
 /**
  * AllExceptionsFilter
  *
@@ -43,8 +56,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const { status, code, message, details } =
-      this.extractErrorInfo(exception);
+    const { status, code, message, details } = this.extractErrorInfo(exception);
 
     // Pull correlation ID injected by CorrelationIdMiddleware (if present).
     const requestId =
@@ -81,12 +93,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   // ── Private helpers ────────────────────────────────────────────────────────
 
-  private extractErrorInfo(exception: unknown): {
-    status: number;
-    code: string;
-    message: string;
-    details?: ValidationFieldError[] | Record<string, unknown> | null;
-  } {
+  private extractErrorInfo(exception: unknown): ExtractedErrorInfo {
     // 1. NestJS ThrottlerException
     if (exception instanceof ThrottlerException) {
       return {
@@ -103,13 +110,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
       // class-validator pipe errors arrive as an object with a `message` array.
       if (
-        typeof exceptionResponse === 'object' &&
-        exceptionResponse !== null &&
+        this.isHttpExceptionResponseBody(exceptionResponse) &&
         'message' in exceptionResponse &&
-        Array.isArray((exceptionResponse as any).message)
+        Array.isArray(exceptionResponse.message)
       ) {
         const validationDetails = this.parseClassValidatorErrors(
-          (exceptionResponse as any).message,
+          exceptionResponse.message,
         );
         return {
           status,
@@ -122,7 +128,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const message =
         typeof exceptionResponse === 'string'
           ? exceptionResponse
-          : (exceptionResponse as any).message ?? exception.message;
+          : this.isHttpExceptionResponseBody(exceptionResponse) &&
+              typeof exceptionResponse.message === 'string'
+            ? exceptionResponse.message
+            : exception.message;
 
       return {
         status,
@@ -131,31 +140,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       };
     }
 
-    // 3. Prisma constraint violations (e.g. unique key, foreign key)
+    // 3. Prisma client errors
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      if (exception.code === 'P2002') {
-        // Unique constraint violation
-        return {
-          status: HttpStatus.CONFLICT,
-          code: ErrorCode.CONFLICT,
-          message: 'A record with the provided data already exists.',
-        };
-      }
-
-      if (exception.code === 'P2003') {
-        // Foreign key constraint violation
-        return {
-          status: HttpStatus.UNPROCESSABLE_ENTITY,
-          code: ErrorCode.UNPROCESSABLE_ENTITY,
-          message: 'The referenced resource does not exist.',
-        };
-      }
-
-      return {
-        status: HttpStatus.INTERNAL_SERVER_ERROR,
-        code: ErrorCode.INTERNAL_SERVER_ERROR,
-        message: 'A database error occurred.',
-      };
+      return this.prismaErrorToErrorInfo(exception);
     }
 
     // 4. Generic / unknown exceptions
@@ -164,6 +151,52 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code: ErrorCode.INTERNAL_SERVER_ERROR,
       message: 'An unexpected error occurred. Please try again later.',
     };
+  }
+
+  private prismaErrorToErrorInfo(
+    exception: Prisma.PrismaClientKnownRequestError,
+  ): ExtractedErrorInfo {
+    const map: Record<string, ExtractedErrorInfo> = {
+      P2000: {
+        status: HttpStatus.BAD_REQUEST,
+        code: ErrorCode.BAD_REQUEST,
+        message: 'The provided value is too long for a database field.',
+      },
+      P2002: {
+        status: HttpStatus.CONFLICT,
+        code: ErrorCode.CONFLICT,
+        message: 'A record with the provided data already exists.',
+      },
+      P2003: {
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        code: ErrorCode.UNPROCESSABLE_ENTITY,
+        message: 'The referenced resource does not exist.',
+      },
+      P2011: {
+        status: HttpStatus.BAD_REQUEST,
+        code: ErrorCode.BAD_REQUEST,
+        message: 'A required value cannot be null.',
+      },
+      P2025: {
+        status: HttpStatus.NOT_FOUND,
+        code: ErrorCode.NOT_FOUND,
+        message: 'The requested database record was not found.',
+      },
+    };
+
+    return (
+      map[exception.code] ?? {
+        status: HttpStatus.INTERNAL_SERVER_ERROR,
+        code: ErrorCode.INTERNAL_SERVER_ERROR,
+        message: 'A database error occurred.',
+      }
+    );
+  }
+
+  private isHttpExceptionResponseBody(
+    value: unknown,
+  ): value is HttpExceptionResponseBody {
+    return typeof value === 'object' && value !== null;
   }
 
   /**
