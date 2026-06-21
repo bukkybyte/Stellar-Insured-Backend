@@ -140,6 +140,22 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   LOG_LEVEL: string = 'info';
+
+  @IsString()
+  @IsOptional()
+  CORS_ALLOWED_ORIGINS: string = 'http://localhost:3000,http://localhost:4200';
+
+  @IsNumber()
+  @IsOptional()
+  REQUEST_TIMEOUT_MS: number = 30000;
+
+  @IsNumber()
+  @IsOptional()
+  HEADERS_TIMEOUT_MS: number = 60000;
+
+  @IsNumber()
+  @IsOptional()
+  KEEP_ALIVE_TIMEOUT_MS: number = 65000;
 }
 
 /** Placeholder values that must never be used in production. */

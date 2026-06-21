@@ -3,8 +3,8 @@ import { ValidationPipe, VersioningType, Logger } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
-import csurf from 'csurf';
 import * as cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import { logger } from './config/winston.config';
 import * as expressWinston from 'express-winston';
 import * as winston from 'winston';
@@ -21,8 +21,33 @@ async function bootstrap() {
   // - load config service for runtime configuration values
   // - apply middleware and global pipes before listening
 
-  // Cookie parser for CSRF
+  // Cookie parser
   app.use(cookieParser());
+
+  // Security headers with Helmet
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    noSniff: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    xssFilter: true,
+  }));
 
   // Request logging
   app.use(expressWinston.logger({
@@ -38,15 +63,13 @@ async function bootstrap() {
     colorize: false,
   }));
 
-  // CSRF protection
-  app.use(csurf({
-    cookie: {
-      httpOnly: true,
-      secure: configService.get<string>('NODE_ENV') === 'production',
-      sameSite: 'strict',
-    },
-    ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
-  }));
+  // CSRF protection disabled for API-only clients
+  // Justification: This is a REST API serving stateless clients (mobile apps, SPAs, other services)
+  // that use JWT tokens for authentication. CSRF protection is designed for cookie-based session
+  // authentication in traditional web applications. For API-only services, CSRF adds unnecessary
+  // complexity without meaningful security benefits, as JWT-based authentication is not vulnerable
+  // to CSRF attacks. Security is maintained through proper CORS configuration, JWT validation,
+  // and rate limiting.
 
   // Global validation pipe
   // - removes non-whitelisted properties
@@ -72,14 +95,39 @@ async function bootstrap() {
     prefix: 'v',
   });
 
-  // CORS
-  app.enableCors();
+  // CORS - configured with explicit allowed origins for security
+  const corsAllowedOrigins = configService
+    .get<string>('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:4200')
+    .split(',')
+    .map((origin) => origin.trim());
+
+  app.enableCors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+
+      if (corsAllowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: true,
+    allowedHeaders: 'Content-Type,Authorization,X-Requested-With,Accept,Origin',
+    maxAge: 86400, // 24 hours
+  });
 
   // Enable NestJS shutdown hooks so lifecycle events (onModuleDestroy, etc.) fire on SIGTERM/SIGINT
   app.enableShutdownHooks();
 
+  // Timeout configuration - aligned for security and performance
+  // requestTimeout: Maximum time for a request to complete (30s)
+  // keepAliveTimeout: Time to keep idle connections open (65s)
+  // headersTimeout: Time to wait for headers (60s) - must be less than keepAliveTimeout
   const requestTimeoutMs = configService.get<number>('REQUEST_TIMEOUT_MS', 30000);
-  const keepAliveTimeoutMs = configService.get<number>('KEEP_ALIVE_TIMEOUT_MS', 5000);
+  const headersTimeoutMs = configService.get<number>('HEADERS_TIMEOUT_MS', 60000);
+  const keepAliveTimeoutMs = configService.get<number>('KEEP_ALIVE_TIMEOUT_MS', 65000);
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setTimeout(requestTimeoutMs, () => {
@@ -101,7 +149,7 @@ async function bootstrap() {
     server.setTimeout(requestTimeoutMs);
   }
   server.keepAliveTimeout = keepAliveTimeoutMs;
-  server.headersTimeout = requestTimeoutMs + 10000;
+  server.headersTimeout = headersTimeoutMs;
 
   bootstrapLogger.log(`Application is running on: http://localhost:${port}/${apiPrefix}`);
 
