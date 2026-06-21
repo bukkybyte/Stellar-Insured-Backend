@@ -1,4 +1,5 @@
 import { IsString, IsEnum, IsOptional, IsObject } from 'class-validator';
+import { Prisma } from '@prisma/client';
 import { NotificationType } from '../enums/notification-type.enum';
 
 export class CreateNotificationDto {
@@ -16,5 +17,5 @@ export class CreateNotificationDto {
 
   @IsOptional()
   @IsObject()
-  data?: any;
+  data?: Prisma.InputJsonObject;
 }

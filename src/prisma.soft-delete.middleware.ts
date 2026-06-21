@@ -32,6 +32,18 @@ export interface SoftDeleteConfig {
   excludeDeleted?: boolean;
 }
 
+type MiddlewareNext = (params: Prisma.MiddlewareParams) => Promise<unknown>;
+
+type SoftDeleteWhere = Record<string, unknown> & {
+  _includeDeleted?: boolean;
+};
+
+interface SoftDeleteMiddlewareArgs {
+  where?: SoftDeleteWhere;
+  includeDeleted?: boolean;
+  data?: Record<string, unknown>;
+}
+
 /**
  * Query extension to include soft-deleted records
  * Usage: await prisma.user.findMany({ includeDeleted: true })
@@ -48,8 +60,9 @@ declare global {
 export function createSoftDeleteMiddleware(
   config: SoftDeleteConfig = { excludeDeleted: true },
 ) {
-  return async (params: Prisma.MiddlewareParams, next: (params: Prisma.MiddlewareParams) => Promise<any>) => {
-    const { model, action, args, dataPath } = params;
+  return async (params: Prisma.MiddlewareParams, next: MiddlewareNext) => {
+    const { model, action } = params;
+    const args = getMiddlewareArgs(params);
 
     // Only apply to models that support soft delete
     if (!SOFT_DELETE_MODELS.includes(model as SoftDeleteModel)) {
@@ -57,9 +70,13 @@ export function createSoftDeleteMiddleware(
     }
 
     // Handle find operations - add where clause for soft delete
-    if (['findUnique', 'findUniqueOrThrow', 'findFirst', 'findMany'].includes(action)) {
+    if (
+      ['findUnique', 'findUniqueOrThrow', 'findFirst', 'findMany'].includes(
+        action,
+      )
+    ) {
       // Check if includeDeleted is explicitly set to true in query options
-      const includeDeleted = (args.where as any)?._includeDeleted === true || args.includeDeleted === true;
+      const includeDeleted = shouldIncludeDeleted(args);
 
       if (config.excludeDeleted && !includeDeleted) {
         // Add deletedAt filter to where clause
@@ -70,12 +87,7 @@ export function createSoftDeleteMiddleware(
       }
 
       // Remove the flag from the query before sending to database
-      if ((args.where as any)?._includeDeleted !== undefined) {
-        delete (args.where as any)._includeDeleted;
-      }
-      if (args.includeDeleted !== undefined) {
-        delete args.includeDeleted;
-      }
+      removeIncludeDeletedFlags(args);
     }
 
     // Handle update operations - prevent updating through relations
@@ -92,11 +104,8 @@ export function createSoftDeleteMiddleware(
     // Handle delete operations - convert to soft delete
     if (action === 'delete' || action === 'deleteMany') {
       // Convert delete to update with deletedAt timestamp
-      const deleteArgs = args as any;
-
-      // Build update args
       const updateArgs = {
-        where: deleteArgs.where,
+        where: args.where,
         data: {
           deletedAt: new Date(),
         },
@@ -112,7 +121,7 @@ export function createSoftDeleteMiddleware(
 
     // Handle count operations - exclude soft-deleted records
     if (action === 'count') {
-      const includeDeleted = (args.where as any)?._includeDeleted === true || args.includeDeleted === true;
+      const includeDeleted = shouldIncludeDeleted(args);
 
       if (config.excludeDeleted && !includeDeleted) {
         args.where = {
@@ -121,17 +130,12 @@ export function createSoftDeleteMiddleware(
         };
       }
 
-      if ((args.where as any)?._includeDeleted !== undefined) {
-        delete (args.where as any)._includeDeleted;
-      }
-      if (args.includeDeleted !== undefined) {
-        delete args.includeDeleted;
-      }
+      removeIncludeDeletedFlags(args);
     }
 
     // Handle aggregate operations - exclude soft-deleted records
     if (action === 'aggregate') {
-      const includeDeleted = (args.where as any)?._includeDeleted === true || args.includeDeleted === true;
+      const includeDeleted = shouldIncludeDeleted(args);
 
       if (config.excludeDeleted && !includeDeleted) {
         args.where = {
@@ -140,14 +144,32 @@ export function createSoftDeleteMiddleware(
         };
       }
 
-      if ((args.where as any)?._includeDeleted !== undefined) {
-        delete (args.where as any)._includeDeleted;
-      }
-      if (args.includeDeleted !== undefined) {
-        delete args.includeDeleted;
-      }
+      removeIncludeDeletedFlags(args);
     }
 
     return next(params);
   };
+}
+
+function getMiddlewareArgs(
+  params: Prisma.MiddlewareParams,
+): SoftDeleteMiddlewareArgs {
+  if (!params.args) {
+    params.args = {};
+  }
+
+  return params.args as SoftDeleteMiddlewareArgs;
+}
+
+function shouldIncludeDeleted(args: SoftDeleteMiddlewareArgs): boolean {
+  return args.where?._includeDeleted === true || args.includeDeleted === true;
+}
+
+function removeIncludeDeletedFlags(args: SoftDeleteMiddlewareArgs): void {
+  if (args.where?._includeDeleted !== undefined) {
+    delete args.where._includeDeleted;
+  }
+  if (args.includeDeleted !== undefined) {
+    delete args.includeDeleted;
+  }
 }

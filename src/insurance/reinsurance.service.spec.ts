@@ -1,9 +1,21 @@
 import { ReinsuranceService } from './reinsurance.service';
+import { PrismaService } from '../prisma.service';
+import { AuditService } from './services/audit.service';
+
+interface MockPrismaService {
+  reinsuranceContract: {
+    create: jest.Mock;
+  };
+}
+
+interface MockAuditService {
+  logCreate: jest.Mock;
+}
 
 describe('ReinsuranceService', () => {
   let service: ReinsuranceService;
-  let prisma: any;
-  let auditService: any;
+  let prisma: MockPrismaService;
+  let auditService: MockAuditService;
 
   beforeEach(() => {
     prisma = {
@@ -16,7 +28,10 @@ describe('ReinsuranceService', () => {
       logCreate: jest.fn(),
     };
 
-    service = new ReinsuranceService(prisma, auditService);
+    service = new ReinsuranceService(
+      prisma as unknown as PrismaService,
+      auditService as unknown as AuditService,
+    );
     jest.clearAllMocks();
   });
 
@@ -28,7 +43,11 @@ describe('ReinsuranceService', () => {
         premiumRate: 0.02,
       };
 
-      const createdContract = { id: 'contract-1', ...contractData, createdAt: new Date() };
+      const createdContract = {
+        id: 'contract-1',
+        ...contractData,
+        createdAt: new Date(),
+      };
       prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
 
       const result = await service.createContract('pool-1', 50000, 0.02);
@@ -63,7 +82,12 @@ describe('ReinsuranceService', () => {
     });
 
     it('should pass correct parameters to prisma.reinsuranceContract.create', async () => {
-      const createdContract = { id: 'c-2', poolId: 'p-2', coverageLimit: 25000, premiumRate: 0.03 };
+      const createdContract = {
+        id: 'c-2',
+        poolId: 'p-2',
+        coverageLimit: 25000,
+        premiumRate: 0.03,
+      };
       prisma.reinsuranceContract.create.mockResolvedValue(createdContract);
 
       await service.createContract('p-2', 25000, 0.03);

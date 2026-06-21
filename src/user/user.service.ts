@@ -1,9 +1,29 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { EncryptionService } from '../encryption/encryption.service';
-import { sanitizeString, sanitizeObject, isValidCuid, isValidWalletAddress } from '../common/utils/sanitization.util';
-import { User } from '@prisma/client';
+import {
+  sanitizeString,
+  sanitizeObject,
+  isValidCuid,
+  isValidWalletAddress,
+} from '../common/utils/sanitization.util';
+import { Prisma, User } from '@prisma/client';
+
+interface PaginatedUsers {
+  data: User[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
 
 @Injectable()
 export class UserService {
@@ -12,7 +32,7 @@ export class UserService {
     private readonly encryption: EncryptionService,
   ) {}
 
-  async findById(id: string) {
+  async findById(id: string): Promise<User> {
     // Validate ID format before querying database
     if (!isValidCuid(id)) {
       throw new BadRequestException('Invalid user ID format');
@@ -31,7 +51,7 @@ export class UserService {
     return this.decryptUser(user);
   }
 
-  async findByWallet(walletAddress: string) {
+  async findByWallet(walletAddress: string): Promise<User> {
     // Validate wallet address format before querying database
     if (!isValidWalletAddress(walletAddress)) {
       throw new BadRequestException('Invalid wallet address format');
@@ -46,13 +66,15 @@ export class UserService {
       },
     });
     if (!user) {
-      throw new NotFoundException(`User with wallet address ${sanitizedAddress} not found`);
+      throw new NotFoundException(
+        `User with wallet address ${sanitizedAddress} not found`,
+      );
     }
     // Decrypt sensitive fields
     return this.decryptUser(user);
   }
 
-  async findPaginated(page = 1, limit = 20) {
+  async findPaginated(page = 1, limit = 20): Promise<PaginatedUsers> {
     const safeLimit = Math.min(Math.max(limit, 1), 100);
     const offset = Math.max(page - 1, 0) * safeLimit;
 
@@ -68,7 +90,7 @@ export class UserService {
     ]);
 
     return {
-      data: users.map((user) => this.decryptUser(user)),
+      data: users.map(user => this.decryptUser(user)),
       meta: {
         page,
         limit: safeLimit,
@@ -78,7 +100,7 @@ export class UserService {
     };
   }
 
-  async create(walletAddress: string, email?: string) {
+  async create(walletAddress: string, email?: string): Promise<User> {
     // Validate wallet address format
     if (!isValidWalletAddress(walletAddress)) {
       throw new BadRequestException('Invalid wallet address format');
@@ -92,12 +114,16 @@ export class UserService {
     });
 
     if (existingUser) {
-      throw new ConflictException('User with this wallet address already exists');
+      throw new ConflictException(
+        'User with this wallet address already exists',
+      );
     }
 
     // Encrypt email for privacy
     const sanitizedEmail = email ? sanitizeString(email) : null;
-    const encryptedEmail = sanitizedEmail ? this.encryption.encrypt(sanitizedEmail) : null;
+    const encryptedEmail = sanitizedEmail
+      ? this.encryption.encrypt(sanitizedEmail)
+      : null;
 
     return this.prisma.user.create({
       data: {
@@ -107,7 +133,7 @@ export class UserService {
     });
   }
 
-  async update(id: string, updateData: UpdateUserDto) {
+  async update(id: string, updateData: UpdateUserDto): Promise<User> {
     // Validate ID format
     if (!isValidCuid(id)) {
       throw new BadRequestException('Invalid user ID format');
@@ -117,7 +143,7 @@ export class UserService {
 
     // Build sanitized update payload with explicit property selection
     // This prevents mass assignment by only allowing known safe fields
-    const data: Record<string, unknown> = {};
+    const data: Prisma.UserUpdateInput = {};
 
     if (updateData.email !== undefined) {
       data.email = this.encryption.encrypt(sanitizeString(updateData.email));
@@ -126,11 +152,15 @@ export class UserService {
     if (updateData.profileData !== undefined) {
       // profileData is already validated by DTO (ProfileDataDto)
       // Apply an additional sanitization pass for defense-in-depth
-      data.profileData = sanitizeObject(updateData.profileData);
+      data.profileData = this.toJsonInput(
+        sanitizeObject(updateData.profileData),
+      );
     }
 
     if (updateData.pushSubscription !== undefined) {
-      data.pushSubscription = this.encryption.encrypt(sanitizeString(updateData.pushSubscription));
+      data.pushSubscription = this.encryption.encrypt(
+        sanitizeString(updateData.pushSubscription),
+      );
     }
 
     return this.prisma.user.update({
@@ -139,7 +169,7 @@ export class UserService {
     });
   }
 
-  async delete(id: string) {
+  async delete(id: string): Promise<{ id: string; deletedAt: Date | null }> {
     await this.findById(id);
     const deletedUser = await this.prisma.user.update({
       where: { id },
@@ -156,34 +186,44 @@ export class UserService {
   /**
    * Decrypt sensitive fields in user object
    */
-  private decryptUser(user: User) {
+  private decryptUser(user: User): User {
     const decrypted = { ...user };
-    
+
     if (decrypted.walletAddress) {
       try {
-        decrypted.walletAddress = this.encryption.decrypt(decrypted.walletAddress);
-      } catch (error) {
+        decrypted.walletAddress = this.encryption.decrypt(
+          decrypted.walletAddress,
+        );
+      } catch {
         // If decryption fails, keep encrypted value
       }
     }
-    
+
     if (decrypted.email) {
       try {
         decrypted.email = this.encryption.decrypt(decrypted.email);
-      } catch (error) {
+      } catch {
         // If decryption fails, keep encrypted value
       }
     }
-    
+
     if (decrypted.pushSubscription) {
       try {
-        const decryptedJson = this.encryption.decrypt(decrypted.pushSubscription as string);
-        decrypted.pushSubscription = JSON.parse(decryptedJson);
-      } catch (error) {
+        const decryptedJson = this.encryption.decrypt(
+          decrypted.pushSubscription as string,
+        );
+        decrypted.pushSubscription = JSON.parse(
+          decryptedJson,
+        ) as Prisma.JsonValue;
+      } catch {
         // If decryption fails, keep encrypted value
       }
     }
-    
+
     return decrypted;
+  }
+
+  private toJsonInput(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 }

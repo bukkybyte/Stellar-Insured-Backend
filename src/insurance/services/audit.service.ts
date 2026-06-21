@@ -1,18 +1,27 @@
 import { Injectable, Inject, Scope } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import { Request } from 'express';
+import { Prisma } from '@prisma/client';
 import { AuditAction } from '../enums/audit-action.enum';
 import { PrismaService } from '../../prisma.service';
+
+type AuditState = Prisma.InputJsonValue | null;
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id?: string;
+  };
+}
 
 @Injectable({ scope: Scope.REQUEST })
 export class AuditService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(REQUEST) private request: Request,
+    @Inject(REQUEST) private request: AuthenticatedRequest,
   ) {}
 
   private getUserId(): string | undefined {
-    return (this.request as any).user?.id;
+    return this.request.user?.id;
   }
 
   private getIpAddress(): string | undefined {
@@ -27,8 +36,8 @@ export class AuditService {
     action: AuditAction,
     entityType: string,
     entityId: string,
-    beforeState?: any,
-    afterState?: any,
+    beforeState?: unknown,
+    afterState?: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
@@ -38,8 +47,8 @@ export class AuditService {
         action,
         entityType,
         entityId,
-        beforeState: beforeState ?? undefined,
-        afterState: afterState ?? undefined,
+        beforeState: this.toAuditState(beforeState) ?? undefined,
+        afterState: this.toAuditState(afterState) ?? undefined,
         ipAddress: this.getIpAddress(),
         userAgent: this.getUserAgent(),
         transactionHash,
@@ -52,84 +61,156 @@ export class AuditService {
   async logCreate(
     entityType: string,
     entityId: string,
-    afterState: any,
+    afterState: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.CREATE, entityType, entityId, null, afterState, transactionHash, reason);
+    await this.log(
+      AuditAction.CREATE,
+      entityType,
+      entityId,
+      null,
+      afterState,
+      transactionHash,
+      reason,
+    );
   }
 
   async logUpdate(
     entityType: string,
     entityId: string,
-    beforeState: any,
-    afterState: any,
+    beforeState: unknown,
+    afterState: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.UPDATE, entityType, entityId, beforeState, afterState, transactionHash, reason);
+    await this.log(
+      AuditAction.UPDATE,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+    );
   }
 
   async logDelete(
     entityType: string,
     entityId: string,
-    beforeState: any,
+    beforeState: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.DELETE, entityType, entityId, beforeState, null, transactionHash, reason);
+    await this.log(
+      AuditAction.DELETE,
+      entityType,
+      entityId,
+      beforeState,
+      null,
+      transactionHash,
+      reason,
+    );
   }
 
   async logApprove(
     entityType: string,
     entityId: string,
-    beforeState?: any,
-    afterState?: any,
+    beforeState?: unknown,
+    afterState?: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.APPROVE, entityType, entityId, beforeState, afterState, transactionHash, reason);
+    await this.log(
+      AuditAction.APPROVE,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+    );
   }
 
   async logReject(
     entityType: string,
     entityId: string,
-    beforeState?: any,
-    afterState?: any,
+    beforeState?: unknown,
+    afterState?: unknown,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.REJECT, entityType, entityId, beforeState, afterState, undefined, reason);
+    await this.log(
+      AuditAction.REJECT,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      undefined,
+      reason,
+    );
   }
 
   async logPayout(
     entityType: string,
     entityId: string,
-    beforeState?: any,
-    afterState?: any,
+    beforeState?: unknown,
+    afterState?: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.PAYOUT, entityType, entityId, beforeState, afterState, transactionHash, reason);
+    await this.log(
+      AuditAction.PAYOUT,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+    );
   }
 
   async logPurchase(
     entityType: string,
     entityId: string,
-    afterState: any,
+    afterState: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.PURCHASE, entityType, entityId, null, afterState, transactionHash, reason);
+    await this.log(
+      AuditAction.PURCHASE,
+      entityType,
+      entityId,
+      null,
+      afterState,
+      transactionHash,
+      reason,
+    );
   }
 
   async logAddCapital(
     entityType: string,
     entityId: string,
-    beforeState: any,
-    afterState: any,
+    beforeState: unknown,
+    afterState: unknown,
     transactionHash?: string,
     reason?: string,
   ): Promise<void> {
-    await this.log(AuditAction.ADD_CAPITAL, entityType, entityId, beforeState, afterState, transactionHash, reason);
+    await this.log(
+      AuditAction.ADD_CAPITAL,
+      entityType,
+      entityId,
+      beforeState,
+      afterState,
+      transactionHash,
+      reason,
+    );
+  }
+
+  private toAuditState(value: unknown): AuditState | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 }

@@ -2,12 +2,38 @@ import { ClaimService } from './claim.service';
 import { ClaimStatus } from './enums/claim-status.enum';
 import { PolicyStatus } from './enums/policy-status.enum';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../prisma.service';
+import { EncryptionService } from '../encryption/encryption.service';
+import { AuditService } from './services/audit.service';
+
+interface MockPrismaService {
+  claim: {
+    findUnique: jest.Mock;
+    update: jest.Mock;
+    create: jest.Mock;
+    count: jest.Mock;
+  };
+}
+
+interface MockEncryptionService {
+  encrypt: jest.Mock;
+  decrypt: jest.Mock;
+}
+
+interface MockAuditService {
+  log: jest.Mock;
+  logCreate: jest.Mock;
+  logApprove: jest.Mock;
+  logReject: jest.Mock;
+  logPayout: jest.Mock;
+  logUpdate: jest.Mock;
+}
 
 describe('ClaimService', () => {
   let service: ClaimService;
-  let prisma: any;
-  let encryption: any;
-  let auditService: any;
+  let prisma: MockPrismaService;
+  let encryption: MockEncryptionService;
+  let auditService: MockAuditService;
 
   const mockPolicy = {
     id: 'policy-1',
@@ -54,13 +80,22 @@ describe('ClaimService', () => {
       logUpdate: jest.fn(),
     };
 
-    service = new ClaimService(prisma, encryption, auditService);
+    service = new ClaimService(
+      prisma as unknown as PrismaService,
+      encryption as unknown as EncryptionService,
+      auditService as unknown as AuditService,
+    );
     jest.clearAllMocks();
   });
 
   describe('createClaim', () => {
     it('should create a claim with encrypted claim amount', async () => {
-      const createdClaim = { id: 'claim-new', policyId: 'policy-1', claimAmount: 50000, status: ClaimStatus.PENDING };
+      const createdClaim = {
+        id: 'claim-new',
+        policyId: 'policy-1',
+        claimAmount: 50000,
+        status: ClaimStatus.PENDING,
+      };
       prisma.claim.create.mockResolvedValue(createdClaim);
 
       const result = await service.createClaim('policy-1', 50000);
@@ -73,7 +108,11 @@ describe('ClaimService', () => {
           status: ClaimStatus.PENDING,
         },
       });
-      expect(auditService.logCreate).toHaveBeenCalledWith('Claim', 'claim-new', createdClaim);
+      expect(auditService.logCreate).toHaveBeenCalledWith(
+        'Claim',
+        'claim-new',
+        createdClaim,
+      );
     });
   });
 
@@ -81,54 +120,85 @@ describe('ClaimService', () => {
     it('should throw NotFoundException if claim does not exist', async () => {
       prisma.claim.findUnique.mockResolvedValue(null);
 
-      await expect(service.assessClaim('nonexistent')).rejects.toThrow(NotFoundException);
+      await expect(service.assessClaim('nonexistent')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw NotFoundException if policy is not found on claim', async () => {
       prisma.claim.findUnique.mockResolvedValue({ ...mockClaim, policy: null });
 
-      await expect(service.assessClaim('claim-1')).rejects.toThrow(NotFoundException);
+      await expect(service.assessClaim('claim-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should reject claim if policy is not active', async () => {
       const inactivePolicy = { ...mockPolicy, status: PolicyStatus.EXPIRED };
-      prisma.claim.findUnique.mockResolvedValue({ ...mockClaim, policy: inactivePolicy });
-      prisma.claim.update.mockResolvedValue({ ...mockClaim, status: ClaimStatus.REJECTED, policy: inactivePolicy });
+      prisma.claim.findUnique.mockResolvedValue({
+        ...mockClaim,
+        policy: inactivePolicy,
+      });
+      prisma.claim.update.mockResolvedValue({
+        ...mockClaim,
+        status: ClaimStatus.REJECTED,
+        policy: inactivePolicy,
+      });
 
-      await expect(service.assessClaim('claim-1')).rejects.toThrow(BadRequestException);
+      await expect(service.assessClaim('claim-1')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should reject claim if claim amount exceeds coverage', async () => {
       const claim = { ...mockClaim, claimAmount: 200000 };
       prisma.claim.findUnique.mockResolvedValue(claim);
-      prisma.claim.update.mockResolvedValue({ ...claim, status: ClaimStatus.REJECTED });
+      prisma.claim.update.mockResolvedValue({
+        ...claim,
+        status: ClaimStatus.REJECTED,
+      });
 
-      await expect(service.assessClaim('claim-1')).rejects.toThrow(BadRequestException);
+      await expect(service.assessClaim('claim-1')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should reject claim if oracle verification fails (expired policy)', async () => {
-      const expiredPolicy = { ...mockPolicy, status: PolicyStatus.ACTIVE, endDate: new Date('2020-01-01') };
+      const expiredPolicy = {
+        ...mockPolicy,
+        status: PolicyStatus.ACTIVE,
+        endDate: new Date('2020-01-01'),
+      };
       const claim = { ...mockClaim, policy: expiredPolicy };
 
       // First call for assessClaim, second for updateStatus (rejection), third for verifyOracle
       prisma.claim.findUnique
-        .mockResolvedValueOnce(claim)         // assessClaim main fetch
-        .mockResolvedValueOnce(claim)         // updateStatus fetch (before rejection)
+        .mockResolvedValueOnce(claim) // assessClaim main fetch
+        .mockResolvedValueOnce(claim) // updateStatus fetch (before rejection)
         .mockResolvedValueOnce({ ...claim, policy: expiredPolicy }); // verifyOracle fetch
 
       prisma.claim.count.mockResolvedValue(0);
-      prisma.claim.update.mockResolvedValue({ ...claim, status: ClaimStatus.REJECTED });
+      prisma.claim.update.mockResolvedValue({
+        ...claim,
+        status: ClaimStatus.REJECTED,
+      });
 
-      await expect(service.assessClaim('claim-1')).rejects.toThrow(BadRequestException);
+      await expect(service.assessClaim('claim-1')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should approve claim when all checks pass', async () => {
       const claim = { ...mockClaim, claimAmount: 50000 };
-      const approvedClaim = { ...claim, status: ClaimStatus.APPROVED, payoutAmount: 50000 };
+      const approvedClaim = {
+        ...claim,
+        status: ClaimStatus.APPROVED,
+        payoutAmount: 50000,
+      };
 
       prisma.claim.findUnique
-        .mockResolvedValueOnce(claim)   // assessClaim
-        .mockResolvedValueOnce(claim);  // verifyOracle
+        .mockResolvedValueOnce(claim) // assessClaim
+        .mockResolvedValueOnce(claim); // verifyOracle
 
       prisma.claim.count.mockResolvedValue(0);
       prisma.claim.update.mockResolvedValue(approvedClaim);
@@ -141,7 +211,11 @@ describe('ClaimService', () => {
 
     it('should detect fraud and log but still approve if only 1 indicator', async () => {
       const claim = { ...mockClaim, claimAmount: 50000 };
-      const approvedClaim = { ...claim, status: ClaimStatus.APPROVED, payoutAmount: 50000 };
+      const approvedClaim = {
+        ...claim,
+        status: ClaimStatus.APPROVED,
+        payoutAmount: 50000,
+      };
 
       prisma.claim.findUnique
         .mockResolvedValueOnce(claim)
@@ -164,7 +238,11 @@ describe('ClaimService', () => {
         claimAmount: 50000,
         createdAt: new Date('2026-04-27T03:00:00Z'), // 3 AM = unusual timing
       };
-      const approvedClaim = { ...claim, status: ClaimStatus.APPROVED, payoutAmount: 50000 };
+      const approvedClaim = {
+        ...claim,
+        status: ClaimStatus.APPROVED,
+        payoutAmount: 50000,
+      };
 
       prisma.claim.findUnique
         .mockResolvedValueOnce(claim)
@@ -194,7 +272,9 @@ describe('ClaimService', () => {
     it('should throw NotFoundException if claim does not exist', async () => {
       prisma.claim.findUnique.mockResolvedValue(null);
 
-      await expect(service.payClaim('nonexistent')).rejects.toThrow(NotFoundException);
+      await expect(service.payClaim('nonexistent')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should update claim status to PAID', async () => {
@@ -211,7 +291,10 @@ describe('ClaimService', () => {
     it('should call auditService.logPayout after paying', async () => {
       const claim = { ...mockClaim };
       prisma.claim.findUnique.mockResolvedValue(claim);
-      prisma.claim.update.mockResolvedValue({ ...claim, status: ClaimStatus.PAID });
+      prisma.claim.update.mockResolvedValue({
+        ...claim,
+        status: ClaimStatus.PAID,
+      });
 
       await service.payClaim('claim-1');
 

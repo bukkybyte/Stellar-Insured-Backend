@@ -11,14 +11,20 @@ import { AuditService } from '../services/audit.service';
 import { AUDIT_METADATA, AuditMetadata } from '../decorators/audit.decorator';
 
 @Injectable()
-export class AuditInterceptor implements NestInterceptor {
+export class AuditInterceptor implements NestInterceptor<unknown, unknown> {
   constructor(
     private reflector: Reflector,
     private auditService: AuditService,
   ) {}
 
-  async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
-    const metadata = this.reflector.get<AuditMetadata>(AUDIT_METADATA, context.getHandler());
+  async intercept(
+    context: ExecutionContext,
+    next: CallHandler<unknown>,
+  ): Promise<Observable<unknown>> {
+    const metadata = this.reflector.get<AuditMetadata>(
+      AUDIT_METADATA,
+      context.getHandler(),
+    );
 
     if (!metadata) {
       return next.handle();
@@ -26,14 +32,14 @@ export class AuditInterceptor implements NestInterceptor {
 
     const args = context.getArgs();
     const entityId = metadata.getEntityId(args);
-    let beforeState: any = null;
+    let beforeState: unknown = null;
 
     if (metadata.getBeforeState) {
       beforeState = await metadata.getBeforeState(entityId);
     }
 
     return next.handle().pipe(
-      tap(async (response) => {
+      tap(async response => {
         const afterState = response; // Assume method returns the entity
         await this.auditService.log(
           metadata.action,
