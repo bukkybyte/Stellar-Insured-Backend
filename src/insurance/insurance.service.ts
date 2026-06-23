@@ -53,10 +53,13 @@ export class InsuranceService {
             riskType,
             coverageAmount,
             premium,
+<<<<<<< HEAD
             coverageAmount: parseFloat(
               this.encryption.encrypt(coverageAmount.toString()),
             ),
             premium: parseFloat(this.encryption.encrypt(premium.toString())),
+=======
+>>>>>>> 752acb9 (fix(insurance): stop encrypting numeric coverage/premium/claim fields)
           },
         });
       });

@@ -119,8 +119,11 @@ export class ClaimService {
     status: ClaimStatus,
     reason: string,
     _user: string = 'system',
+<<<<<<< HEAD
     additionalData: { payoutAmount?: any } = {},
     _user: string,
+=======
+>>>>>>> 752acb9 (fix(insurance): stop encrypting numeric coverage/premium/claim fields)
     additionalData: { payoutAmount?: Prisma.Decimal | number } = {},
   ): Promise<ClaimWithPolicy> {
     const existing = (await this.prisma.claim.findUnique({
@@ -294,9 +297,12 @@ export class ClaimService {
       data: {
         policyId,
         claimAmount,
+<<<<<<< HEAD
         claimAmount: parseFloat(
           this.encryption.encrypt(claimAmount.toString()),
         ),
+=======
+>>>>>>> 752acb9 (fix(insurance): stop encrypting numeric coverage/premium/claim fields)
         status: ClaimStatus.PENDING,
       },
     });
