@@ -41,8 +41,6 @@ export class ClaimService {
 
     // 1. Verify policy is active
     if (policy.status !== PolicyStatus.ACTIVE) {
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, `Policy is not active: ${policy.status}`);
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, `Policy is not active: ${policy.status}`, 'system');
       await this.updateStatus(
         claimId,
         ClaimStatus.REJECTED,
@@ -54,18 +52,13 @@ export class ClaimService {
 
     // 2. Check coverage limits
     if (Number(claim.claimAmount) > Number(policy.coverageAmount)) {
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Claim amount exceeds coverage');
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Claim amount exceeds coverage', 'system');
-      throw new BadRequestException('Claim amount exceeds policy coverage amount');
       await this.updateStatus(
         claimId,
         ClaimStatus.REJECTED,
         'Claim amount exceeds coverage',
         'system',
       );
-      throw new BadRequestException(
-        'Claim amount exceeds policy coverage amount',
-      );
+      throw new BadRequestException('Claim amount exceeds policy coverage amount');
     }
 
     // 3. Fraud Detection
@@ -86,8 +79,6 @@ export class ClaimService {
     // 4. Oracle Verification
     const oracleVerified = await this.verifyOracle(claimId);
     if (!oracleVerified) {
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Oracle verification failed');
-      await this.updateStatus(claimId, ClaimStatus.REJECTED, 'Oracle verification failed', 'system');
       await this.updateStatus(
         claimId,
         ClaimStatus.REJECTED,
@@ -119,11 +110,6 @@ export class ClaimService {
     status: ClaimStatus,
     reason: string,
     _user: string = 'system',
-<<<<<<< HEAD
-    additionalData: { payoutAmount?: any } = {},
-    _user: string,
-=======
->>>>>>> 752acb9 (fix(insurance): stop encrypting numeric coverage/premium/claim fields)
     additionalData: { payoutAmount?: Prisma.Decimal | number } = {},
   ): Promise<ClaimWithPolicy> {
     const existing = (await this.prisma.claim.findUnique({
@@ -146,16 +132,6 @@ export class ClaimService {
 
     if (status === ClaimStatus.REJECTED) {
       await this.auditService.logReject('Claim', claimId, beforeState, updated, reason);
-    } else if (status === ClaimStatus.APPROVED) {
-      await this.auditService.logApprove('Claim', claimId, beforeState, updated, undefined, reason);
-      await this.auditService.logReject('Claim', updated.id, beforeState, updated, reason);
-      await this.auditService.logReject(
-        'Claim',
-        updated.id,
-        beforeState,
-        updated,
-        reason,
-      );
     } else if (status === ClaimStatus.APPROVED) {
       await this.auditService.logApprove(
         'Claim',
@@ -297,12 +273,6 @@ export class ClaimService {
       data: {
         policyId,
         claimAmount,
-<<<<<<< HEAD
-        claimAmount: parseFloat(
-          this.encryption.encrypt(claimAmount.toString()),
-        ),
-=======
->>>>>>> 752acb9 (fix(insurance): stop encrypting numeric coverage/premium/claim fields)
         status: ClaimStatus.PENDING,
       },
     });
